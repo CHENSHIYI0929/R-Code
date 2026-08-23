@@ -9,6 +9,7 @@ from core.runtime_state import RuntimeState
 from services.compaction import (
     ContextCompactionService,
     SessionMemory,
+    SessionMemoryState,
     SessionMemoryStore,
     SessionMemoryUpdater,
 )
@@ -72,6 +73,44 @@ def test_session_memory_updater_writes_single_markdown_file(tmp_path: Path) -> N
     assert memory.last_summarized_message_uuid == "message-2"
     assert "## Current Goal" in memory.content
     assert "Implement compaction" in memory.content
+
+
+def test_session_memory_injection_separates_core_and_relevant_items(
+    tmp_path: Path,
+) -> None:
+    store = SessionMemoryStore(tmp_path / ".onecode" / "session-memory")
+    store.write_state(
+        SessionMemoryState(
+            task_state={
+                "goal": "Fix authentication timeout",
+                "constraints": ["Do not change the API"],
+                "current_plan": ["Inspect auth flow"],
+                "next_action": "Run authentication tests",
+                "confirmed_findings": [
+                    {"value": "Authentication timeout originates in auth.py", "stale": False},
+                    {"value": "Unrelated formatting note", "stale": False},
+                    {"value": "Old authentication implementation", "stale": True},
+                ],
+            },
+            recent_files=("auth.py",),
+            episodic_notes=(
+                {"value": "Authentication test failed before the retry", "stale": False},
+                {"value": "Stale test result", "stale": True},
+            ),
+        )
+    )
+
+    memory = store.prepare_for_injection(query="authentication timeout test")
+
+    assert memory is not None
+    assert "## Core Memory" in memory.content
+    assert "Goal: Fix authentication timeout" in memory.content
+    assert "## Relevant Memory" in memory.content
+    assert "auth.py" in memory.content
+    assert "Authentication timeout originates in auth.py" in memory.content
+    assert "Unrelated formatting note" not in memory.content
+    assert "Old authentication implementation" not in memory.content
+    assert "Stale test result" not in memory.content
 
 
 def test_session_memory_compact_rewrites_active_chain_before_full_compact(

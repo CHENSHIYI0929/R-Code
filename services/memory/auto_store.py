@@ -8,6 +8,7 @@ from typing import Any
 from services.memory.frontmatter import clean_string, split_frontmatter
 from services.memory.paths import is_auto_memory_path, memory_paths, normalize_memory_path
 from services.memory.types import LongTermMemoryFile, MemoryKind
+from services.memory.validation import is_injectable
 
 VALID_TYPES: tuple[MemoryKind, ...] = ("user", "feedback", "project", "reference")
 
@@ -87,7 +88,7 @@ class LongTermMemoryStore:
             if not is_auto_memory_path(path, self.workspace) or not path.is_file():
                 return False
             metadata, _ = split_frontmatter(path.read_text(encoding="utf-8"))
-            return clean_string(metadata.get("stale")).lower() not in {"true", "1", "yes"}
+            return is_injectable(metadata)
         except (OSError, UnicodeDecodeError):
             return False
 

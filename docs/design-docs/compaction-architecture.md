@@ -87,27 +87,31 @@ flowchart TD
 两种生成模式（loop 中二选一）：
 
 - `SessionMemoryExtractionService`（优先）：assistant 完成后按 `SessionMemoryExtractionPolicy`（init ≥ 10_000 tokens、更新间隔 ≥ 5_000 tokens 或 ≥ 3 次 tool call）触发 fork child。child 不暴露工具、只返回 JSON `ExtractionResult`；parent 解析后通过 `SessionMemoryStore.merge_state()` 写 JSON 并渲染 Markdown。
-- `SessionMemoryUpdater`（fallback）：无 extractor 时，纯文本 turn 后用规则摘要写 memory。
+- `SessionMemoryUpdater`（fallback）：无 extractor 时，纯文本 turn 后生成规则摘要。该兼容 Markdown 不会反向写入 JSON；消费时会被投影为有限的 core/relevant 视图。
 
 所有更新都通过 `SessionMemoryStore.merge_state()`。事实优先级为 user (4) > tool (3) > llm_extraction (2) > speculation (1)，低优先级值不能覆盖较高优先级同字段。工具完成后，CLI 注册的 `SessionMemoryToolUpdater` 通过 `PostToolUse` 与 `ToolError` hook 写入确定性 tool facts：成功 `read_file` 记录 recent file、读取范围、bounded preview 和 `path + mtime_ns + size + SHA-256` fingerprint；成功 `edit_file`/`write_file` 将已有文件摘要标为 stale；失败 `bash` 写入有界 command error。它不依赖 executor 稍后写入的 `files_read/files_changed` metadata，也不让记忆更新阻断工具结果。
 
-session-memory compact 在读取 memory 后先做 freshness validation。文件不在 workspace、已删除，或 SHA-256 与记录值不同，都会使对应 `FileSummary.stale=True`；stale 摘要会持久化用于审计，但不会进入渲染 summary。若有效 memory 为空，现有流程继续回退 full compact。
+session-memory compact 在读取 memory 后先调用统一 `validate_memory_item()` / `is_injectable()`。文件不在 workspace、已删除，或 SHA-256 与记录值不同，都会使对应 `FileSummary.stale=True`；带 `stale` 标记的 confirmed finding、episodic note 与 file summary 都保留审计，但不会进入模型上下文。
+
+注入内容分为两部分：`Core Memory` 固定包含 goal、constraints、current_plan、next_action、recent_files；`Relevant Memory` 仅从 confirmed_findings 和 episodic_notes 中按最新用户 query 进行有界词项匹配（最多 5 条）。因此不会每次将完整 session memory 注入。若有效 memory 为空，现有流程继续回退 full compact。
 
 ```mermaid
 flowchart TD
   Asst["assistant 完成"] --> Hook["AssistantMessageCompleted hook"]
   Hook --> Policy{"token/tool 阈值满足?"}
   Policy -->|是| Fork["fork child (memory_extraction_agent)"]
-  Fork --> Edit["edit_file → session-memory.md"]
+  Fork --> JSON["返回 ExtractionResult JSON"]
+  JSON --> Merge["parent merge_state() → session-memory.json"]
+  Merge --> Render["渲染 session-memory.md"]
   subgraph Consume["session memory compact"]
     Wait["wait_for_current_extraction"] --> Read["读 canonical JSON state"]
-    Read --> Validate["workspace + SHA-256 freshness validation"]
-    Validate --> Build["只渲染 fresh summary + tail"]
+    Read --> Validate["validate_memory_item: workspace + SHA-256 + stale"]
+    Validate --> Build["Core Memory + query-relevant Memory + tail"]
     Build -->|压缩后仍超阈值| FullBack["回退 full compact"]
   end
 ```
 
-compaction service 不生成 session memory；它在 session-memory compact 前只等待进行中的 extraction，读取现有 Markdown 作为摘要来源；tail 由 token/文本消息数选取，并用 `ContextProjector.adjust_start_index_to_preserve_tool_pairs` 保配对。
+compaction service 不生成 session memory；它在 session-memory compact 前只等待进行中的 extraction，读取 canonical JSON 并生成模型投影；tail 由 token/文本消息数选取，并用 `ContextProjector.adjust_start_index_to_preserve_tool_pairs` 保配对。
 
 ### ToolResultStorage
 

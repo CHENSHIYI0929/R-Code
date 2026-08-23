@@ -33,6 +33,18 @@ MICROCOMPACT_PLACEHOLDER = (
 )
 
 
+def _latest_user_query(messages: tuple[dict[str, Any], ...]) -> str:
+    """Return a small lexical query for the session-memory relevance view."""
+
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+    return ""
+
+
 class SubagentRunnerProtocol(Protocol):
     async def run(self, request: SubagentRequest): ...
 
@@ -272,10 +284,9 @@ class ContextCompactionService:
         if self._session_memory_extractor is not None:
             await self._session_memory_extractor.wait_for_current_extraction(state)
         workspace = state.metadata.get("workspace")
-        memory = (
-            self._session_memory_store.validated_for_injection(workspace)
-            if isinstance(workspace, str)
-            else self._session_memory_store.read()
+        memory = self._session_memory_store.prepare_for_injection(
+            query=_latest_user_query(messages),
+            workspace=workspace if isinstance(workspace, str) else None,
         )
         if memory is None or memory.is_empty:
             return None

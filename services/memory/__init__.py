@@ -14,6 +14,7 @@ from services.memory.paths import (
 )
 from services.memory.prompt import LongTermMemoryPromptProvider
 from services.memory.selector import RelevantMemorySelector
+from services.memory.validation import is_injectable, validate_memory_item
 from services.memory.types import (
     InstructionMemoryFile,
     InstructionMemoryResult,
@@ -33,7 +34,9 @@ __all__ = [
     "MemoryPaths",
     "RelevantMemoryContextPreparer",
     "RelevantMemorySelector",
+    "is_injectable",
     "is_auto_memory_markdown_path",
     "is_auto_memory_path",
     "memory_paths",
+    "validate_memory_item",
 ]

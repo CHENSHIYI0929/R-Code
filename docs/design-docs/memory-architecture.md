@@ -14,6 +14,7 @@
 | `prompt.py` | `LongTermMemoryPromptProvider`：system prompt 中的记忆索引与使用说明 |
 | `selector.py` | `RelevantMemorySelector`：LLM side-query 选相关 topic 文件 |
 | `context_preparer.py` | `RelevantMemoryContextPreparer`：追加 synthetic memory attachment |
+| `validation.py` | `validate_memory_item()` / `is_injectable()`：模型注入前的统一 fail-closed 校验 |
 | `extraction.py` | `LongTermMemoryExtractionService`：fork child 后台提取记忆 |
 
 ## 接口设计
@@ -25,6 +26,7 @@ def ensure_exists() / read_entrypoint() -> str
 def truncated_entrypoint(*, max_lines=200, max_chars=25000) -> tuple[str, bool]
 def scan() -> tuple[LongTermMemoryFile, ...]
 def read_topic(relative_path, *, max_lines=200, max_chars=4096) -> str
+def is_injectable(relative_path) -> bool
 def rebuild_entrypoint() / record_memory_write(state, path) -> None
 ```
 
@@ -37,7 +39,7 @@ async def select(messages, state, catalog) -> tuple[LongTermMemoryFile, ...]   #
 async def prepare(messages, state) -> PreparedContext   # 先 await inner，再追加 attachment
 ```
 
-selector 用 `ModelClient` side-query 返回 JSON `{"selected_memories": [...]}`。preparer 生成的 attachment：`{role: "attachment", attachment: {type: "relevant_memories", path, content}, metadata: {synthetic: True, source: "long_term_memory"}}`，受 `max_total_chars=60000` 预算约束。
+selector 用 `ModelClient` side-query 返回 JSON `{"selected_memories": [...]}`。preparer 生成的 attachment：`{role: "attachment", attachment: {type: "relevant_memories", path, content}, metadata: {synthetic: True, source: "long_term_memory", source_refs, rank, selection_reason}}`，受 `max_total_chars=60000` 预算约束。相同审计项也记录在 `state.metadata["long_term_memory_retrieval"]`。
 
 ### InstructionMemoryLoader
 
@@ -77,7 +79,7 @@ flowchart TD
 - **Layer 1（system prompt）**：`InstructionMemoryLoader` 渲染 ONECODE.md 规则，`LongTermMemoryPromptProvider` 提供记忆目录、类型规则和 `MEMORY.md` 截断索引；两者通过 `prompt-architecture.md` 中的 section 注入，各自带 fingerprint 支持缓存。
 - **Layer 2（runtime attachment）**：每轮 `RelevantMemoryContextPreparer.prepare()` 先 await 内层 preparer（compaction），再用 selector 选中的 topic 全文追加为 synthetic attachment。该 attachment 只在 `prepare()` 时临时加入 `PreparedContext`，**不写回 `MessageStore` 或 transcript**。
 
-长期 topic 在进入 selector catalog 和读取 attachment 前都调用 `LongTermMemoryStore.is_injectable()`；缺失、不可读或 frontmatter 标为 `stale: true` 的 topic 不注入。scan、selector 或 topic read 任一步失败时返回空 attachment，不阻塞主流程。
+`validate_memory_item()` / `is_injectable()` 是 session 与 long-term memory 共享的模型注入判定。长期 topic 在进入 selector catalog 和读取 attachment 前都调用 `LongTermMemoryStore.is_injectable()`；缺失、不可读或 frontmatter 标为 `stale: true` 的 topic 不注入。scan、selector 或 topic read 任一步失败时返回空 attachment，不阻塞主流程。
 
 ### Dream 后台提取
 

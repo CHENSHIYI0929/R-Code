@@ -80,7 +80,8 @@ class RelevantMemoryContextPreparer:
         attachments: list[dict[str, Any]] = []
         total_chars = 0
         surfaced: list[str] = []
-        for memory in selected:
+        retrieval_audit: list[dict[str, Any]] = []
+        for rank, memory in enumerate(selected, start=1):
             if not self.store.is_injectable(memory.relative_path):
                 continue
             try:
@@ -102,12 +103,24 @@ class RelevantMemoryContextPreparer:
                     "metadata": {
                         "synthetic": True,
                         "source": "long_term_memory",
+                        "source_refs": [memory.relative_path],
+                        "rank": rank,
+                        "selection_reason": "long_term_selector",
                     },
                 }
             )
             surfaced.append(memory.relative_path)
+            retrieval_audit.append(
+                {
+                    "path": memory.relative_path,
+                    "source_refs": [memory.relative_path],
+                    "rank": rank,
+                    "selection_reason": "long_term_selector",
+                }
+            )
             if total_chars >= self.max_total_chars:
                 break
         if surfaced:
             state.metadata["long_term_memory_surface_paths"] = surfaced
+            state.metadata["long_term_memory_retrieval"] = retrieval_audit
         return tuple(attachments)

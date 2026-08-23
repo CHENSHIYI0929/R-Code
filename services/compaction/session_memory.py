@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from typing import Any, Protocol
 
 from core.runtime_state import RuntimeState
 from services.compaction.token_estimator import estimate_messages_tokens
+from services.memory.validation import is_injectable, validate_memory_item
 from services.observability import TraceRecorder
 from services.subagents.types import SubagentRequest, SubagentResult
 
@@ -72,7 +74,7 @@ class SessionMemoryState:
     })
     recent_files: tuple[str, ...] = ()
     file_summaries: tuple[FileSummary, ...] = ()
-    episodic_notes: tuple[str, ...] = ()
+    episodic_notes: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -234,7 +236,7 @@ class SessionMemoryStore:
             # lower-priority extraction cannot overwrite them.
             if priority >= FACT_PRIORITY["tool"]:
                 summaries.update({item.path: item for item in incoming.file_summaries})
-            notes = tuple(dict.fromkeys((*current.episodic_notes, *incoming.episodic_notes)))
+            notes = _dedupe_memory_items((*current.episodic_notes, *incoming.episodic_notes))
             return self.write_state(replace(current, task_state=task, recent_files=tuple(dict.fromkeys((*incoming.recent_files, *current.recent_files)))[:20], file_summaries=tuple(summaries.values()), episodic_notes=notes))
 
     def merge_extraction(self, extraction: ExtractionResult) -> SessionMemory:
@@ -242,22 +244,49 @@ class SessionMemoryStore:
         task["confirmed_findings"] = [fact.__dict__ for fact in extraction.facts if not fact.stale]
         return self.merge_state(SessionMemoryState(task_state=task), source="llm_extraction")
 
-    def validated_for_injection(self, workspace: Path | str) -> SessionMemory | None:
+    def validated_for_injection(
+        self,
+        workspace: Path | str | None = None,
+        *,
+        query: str = "",
+    ) -> SessionMemory | None:
+        """Return the compact core/relevant projection after validation.
+
+        The canonical JSON state retains stale material for audit.  The
+        returned Markdown is a model-facing projection only.
+        """
         memory = self.read()
-        if memory is None or memory.state is None:
+        if memory is None:
             return memory
-        root = Path(workspace).resolve()
+        if memory.state is None:
+            # Compatibility for pre-JSON sessions: never treat Markdown as
+            # canonical state, but still avoid re-injecting its full body.
+            return replace(memory, content=_render_legacy_injection(memory.content))
         changed = False
         summaries: list[FileSummary] = []
         for item in memory.state.file_summaries:
-            fresh = _summary_is_fresh(item, root)
-            next_item = item if fresh else replace(item, stale=True, stale_reason="file_changed_or_missing")
+            validation = validate_memory_item(item, workspace=workspace)
+            next_item = (
+                item
+                if validation.injectable
+                else replace(item, stale=True, stale_reason=validation.reason)
+            )
             changed = changed or next_item != item
             summaries.append(next_item)
         state = replace(memory.state, file_summaries=tuple(summaries))
         if changed:
             memory = self.write_state(state, metadata=memory)
-        return replace(memory, content=_render_structured_memory(state))
+        return replace(memory, content=_render_injection_memory(state, query=query))
+
+    def prepare_for_injection(
+        self,
+        *,
+        query: str = "",
+        workspace: Path | str | None = None,
+    ) -> SessionMemory | None:
+        """Explicit name for the model-facing validated Session Memory view."""
+
+        return self.validated_for_injection(workspace, query=query)
 
 
 class SessionMemoryUpdater:
@@ -773,16 +802,128 @@ def _state_from_dict(raw: Any) -> SessionMemoryState:
             stale=bool(item.get("stale", False)), stale_reason=str(item.get("stale_reason", "")),
         ))
     task_state = raw.get("task_state") if isinstance(raw.get("task_state"), dict) else {}
-    return SessionMemoryState(task_state=task_state, recent_files=tuple(str(value) for value in raw.get("recent_files", []) if isinstance(value, str)), file_summaries=tuple(summaries), episodic_notes=tuple(str(value) for value in raw.get("episodic_notes", []) if isinstance(value, str)))
+    notes = tuple(
+        value for value in raw.get("episodic_notes", []) if isinstance(value, (str, dict))
+    )
+    return SessionMemoryState(task_state=task_state, recent_files=tuple(str(value) for value in raw.get("recent_files", []) if isinstance(value, str)), file_summaries=tuple(summaries), episodic_notes=notes)
 
 
 def _render_structured_memory(state: SessionMemoryState) -> str:
     task = state.task_state
     fresh = [item for item in state.file_summaries if not item.stale]
-    lines = ["# Session Memory", "", "## Current Goal", str(task.get("goal") or "Not yet established."), "", "## User Constraints", _bullet_lines([str(item) for item in task.get("constraints", [])]), "", "## Confirmed Findings", _bullet_lines([str(item) for item in task.get("confirmed_findings", [])]), "", "## Relevant Files"]
+    lines = ["# Session Memory", "", "## Current Goal", str(task.get("goal") or "Not yet established."), "", "## User Constraints", _bullet_lines([str(item) for item in task.get("constraints", [])]), "", "## Confirmed Findings", _bullet_lines([_memory_item_text(item) for item in task.get("confirmed_findings", [])]), "", "## Relevant Files"]
     lines.extend(f"- {item.path}: {item.summary}" for item in fresh) if fresh else lines.append("- None recorded.")
-    lines.extend(["", "## Errors And Fixes", _bullet_lines([str(item) for item in task.get("errors", [])]), "", "## Pending Work", _bullet_lines([str(item) for item in task.get("current_plan", [])]), "", "## Episodic Notes", _bullet_lines(list(state.episodic_notes)), "", "## Next Step", str(task.get("next_action") or "Continue from recent messages.")])
+    lines.extend(["", "## Errors And Fixes", _bullet_lines([str(item) for item in task.get("errors", [])]), "", "## Pending Work", _bullet_lines([str(item) for item in task.get("current_plan", [])]), "", "## Episodic Notes", _bullet_lines([_memory_item_text(item) for item in state.episodic_notes]), "", "## Next Step", str(task.get("next_action") or "Continue from recent messages.")])
     return "\n".join(lines) + "\n"
+
+
+def _render_injection_memory(state: SessionMemoryState, *, query: str) -> str:
+    """Render only durable core state plus a small query-relevant tail."""
+
+    task = state.task_state
+    stale_files = {item.path for item in state.file_summaries if not is_injectable(item)}
+    recent_files = [path for path in state.recent_files if path not in stale_files]
+    core = [
+        "# Session Memory",
+        "",
+        "## Core Memory",
+        f"Goal: {task.get('goal') or 'Not yet established.'}",
+        "Constraints:",
+        _bullet_lines([str(item) for item in task.get("constraints", [])]),
+        "Current plan:",
+        _bullet_lines([str(item) for item in task.get("current_plan", [])]),
+        f"Next action: {task.get('next_action') or 'Continue from recent messages.'}",
+        "Recent files:",
+        _bullet_lines(recent_files),
+    ]
+    candidates = [*task.get("confirmed_findings", []), *state.episodic_notes]
+    relevant = _select_relevant_memory_items(candidates, query=query, limit=5)
+    core.extend(["", "## Relevant Memory", _bullet_lines([_memory_item_text(item) for item in relevant])])
+    return "\n".join(core) + "\n"
+
+
+def _render_legacy_injection(content: str) -> str:
+    """Bound legacy Markdown sessions without ever writing them back to JSON."""
+
+    body = _strip_front_matter(content)
+    goal = _legacy_section(body, "Current Goal") or "Not yet established."
+    constraints = _legacy_section(body, "User Constraints")
+    plan = _legacy_section(body, "Pending Work")
+    next_action = _legacy_section(body, "Next Step") or "Continue from recent messages."
+    recent_files = _legacy_section(body, "Files Read") or _legacy_section(body, "Relevant Files")
+    relevant = _legacy_section(body, "Key Findings") or _legacy_section(body, "Episodic Notes")
+    return "\n".join(
+        [
+            "# Session Memory",
+            "",
+            "## Core Memory",
+            f"Goal: {goal}",
+            "Constraints:",
+            constraints or "- None recorded.",
+            "Current plan:",
+            plan or "- Continue from recent messages.",
+            f"Next action: {next_action}",
+            "Recent files:",
+            recent_files or "- None recorded.",
+            "",
+            "## Relevant Memory",
+            relevant or "- None recorded.",
+        ]
+    ) + "\n"
+
+
+def _legacy_section(body: str, heading: str) -> str:
+    match = re.search(
+        rf"^## {re.escape(heading)}\s*$\n(?P<body>.*?)(?=^## |\Z)",
+        body,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    return match.group("body").strip() if match else ""
+
+
+def _select_relevant_memory_items(
+    items: list[Any], *, query: str, limit: int,
+) -> list[Any]:
+    query_words = set(_memory_words(query))
+    scored: list[tuple[int, int, Any]] = []
+    for index, item in enumerate(items):
+        if not is_injectable(item):
+            continue
+        text = _memory_item_text(item)
+        overlap = len(query_words.intersection(_memory_words(text)))
+        # Preserve recency/order as the stable tie-breaker.  With no query,
+        # this is a bounded recent-memory fallback rather than full injection.
+        scored.append((overlap, -index, item))
+    scored.sort(reverse=True, key=lambda value: (value[0], value[1]))
+    if query_words and any(score > 0 for score, _, _ in scored):
+        scored = [entry for entry in scored if entry[0] > 0]
+    return [item for _, _, item in scored[:limit] if _memory_item_text(item)]
+
+
+def _memory_item_text(item: Any) -> str:
+    if isinstance(item, dict):
+        value = item.get("value", item.get("note", item.get("text", "")))
+        return str(value)
+    return str(item)
+
+
+def _memory_words(value: str) -> tuple[str, ...]:
+    return tuple(
+        word.lower()
+        for word in re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", value)
+        if len(word) > 1 or "\u4e00" <= word <= "\u9fff"
+    )
+
+
+def _dedupe_memory_items(items: tuple[Any, ...]) -> tuple[Any, ...]:
+    seen: set[str] = set()
+    result: list[Any] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True, ensure_ascii=False) if isinstance(item, dict) else str(item)
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+    return tuple(result)
 
 
 def _observe_file(path: Path, tool_input: dict[str, Any], content: str) -> FileSummary | None:
@@ -796,17 +937,6 @@ def _observe_file(path: Path, tool_input: dict[str, Any], content: str) -> FileS
     line_count = max(0, content.count("\n") + (1 if content else 0))
     preview = " ".join(content.split())[:500] or "File observed."
     return FileSummary(str(resolved), FileFingerprint(str(resolved), stat.st_mtime_ns, stat.st_size, hashlib.sha256(raw).hexdigest()), f"Read from line {offset}; {line_count} displayed line(s). {preview}", (int(offset) if isinstance(offset, int) else 1, line_count))
-
-
-def _summary_is_fresh(item: FileSummary, workspace: Path) -> bool:
-    try:
-        path = Path(item.path).resolve()
-        path.relative_to(workspace)
-        raw = path.read_bytes()
-        stat = path.stat()
-    except (OSError, ValueError):
-        return False
-    return stat.st_size == item.fingerprint.size and hashlib.sha256(raw).hexdigest() == item.fingerprint.content_hash
 
 
 def _atomic_write(path: Path, text: str) -> None:

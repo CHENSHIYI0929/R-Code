@@ -16,7 +16,7 @@ R-Code 是一个 Python code-agent runtime。它用薄主循环编排模型、�
 
 - Instruction memory：分层 `ONECODE.md` / rules，作为 system prompt 规则。
 - Long-term memory：`.onecode/memory/` 的跨会话 topic；检索和注入前须通过 `is_injectable()`，stale topic 不注入。
-- Session memory：`.onecode/sessions/<id>/session-memory.json` 是唯一事实源；`session-memory.md` 仅为渲染产物。工具事实、用户确认与 LLM extraction 经 `merge_state()` 合并，优先级为 user > tool > llm_extraction > speculation；stale 内容保留审计但不进入上下文。
+- Session memory：`.onecode/sessions/<id>/session-memory.json` 是唯一事实源；`session-memory.md` 仅为渲染产物。注入分为固定 core memory（goal、constraints、plan、next action、recent files）和按当前 query 选择的少量 relevant memory；工具事实、用户确认与 LLM extraction 经 `merge_state()` 合并，优先级为 user > tool > llm_extraction > speculation；stale 内容保留审计但不进入上下文。
 
 ## 快速开始
 

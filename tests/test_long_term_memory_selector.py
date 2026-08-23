@@ -5,6 +5,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from core.runtime_state import RuntimeState
+from services.memory.auto_store import LongTermMemoryStore
+from services.memory.context_preparer import RelevantMemoryContextPreparer
 from services.memory.selector import RelevantMemorySelector
 from services.memory.types import LongTermMemoryFile
 from services.model.stream import ModelStreamEvent
@@ -75,3 +77,34 @@ def test_selector_returns_empty_on_invalid_json():
     )
 
     assert selected == ()
+
+
+def test_retrieved_memory_attachment_has_audit_fields(tmp_path: Path):
+    store = LongTermMemoryStore(tmp_path / "repo")
+    store.ensure_exists()
+    (store.memory_dir / "auth.md").write_text(
+        "---\nname: Auth\ndescription: Authentication details\ntype: project\n---\nUse retry.",
+        encoding="utf-8",
+    )
+    state = RuntimeState()
+    preparer = RelevantMemoryContextPreparer(
+        store,
+        RelevantMemorySelector(FakeModel('{"selected_memories":["auth.md"]}')),
+    )
+
+    prepared = asyncio.run(
+        preparer.prepare(({"role": "user", "content": "authentication"},), state)
+    )
+
+    attachment = prepared.messages[-1]
+    assert attachment["metadata"]["source_refs"] == ["auth.md"]
+    assert attachment["metadata"]["rank"] == 1
+    assert attachment["metadata"]["selection_reason"] == "long_term_selector"
+    assert state.metadata["long_term_memory_retrieval"] == [
+        {
+            "path": "auth.md",
+            "source_refs": ["auth.md"],
+            "rank": 1,
+            "selection_reason": "long_term_selector",
+        }
+    ]
