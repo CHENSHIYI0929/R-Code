@@ -49,6 +49,7 @@ class OpenAICompatibleChatCompletionsClient:
         final_text_parts: list[str] = []
         tool_accumulators: dict[int, _ToolCallAccumulator] = {}
         stop_reason: str | None = None
+        response_id: str | None = None
         usage: ModelUsage | None = None
         emitted_completed_tool_ids: set[str] = set()
 
@@ -58,6 +59,8 @@ class OpenAICompatibleChatCompletionsClient:
             payload,
             self.config.timeout_seconds,
         ):
+            if isinstance(chunk.get("id"), str):
+                response_id = chunk["id"]
             chunk_usage = _parse_usage(chunk.get("usage"))
             if chunk_usage is not None:
                 usage = chunk_usage
@@ -114,6 +117,7 @@ class OpenAICompatibleChatCompletionsClient:
             stop_reason=stop_reason,
             usage=usage,
             output_interrupted=_is_output_interrupted_stop_reason(stop_reason),
+            metadata={"response_id": response_id} if response_id is not None else None,
         )
 
     def _build_payload(self, snapshot: ContextSnapshot) -> dict[str, Any]:

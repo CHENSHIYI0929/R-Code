@@ -193,6 +193,27 @@ class MessageStore:
         self._last_uuid = None
         self._transcript_store.switch_session(new_session_id)
 
+    def mark_restored_read_results_untrusted(self, statuses: dict[str, str]) -> None:
+        """Mark restored read results in memory without rewriting old JSONL."""
+        for message in self._messages:
+            if message.get("role") != "tool_result" or message.get("tool_name") != "read_file":
+                continue
+            metadata = message.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            path = metadata.get("path")
+            status = statuses.get(path) if isinstance(path, str) else None
+            if status not in {"stale", "missing"}:
+                continue
+            metadata = dict(metadata)
+            metadata["trust_status"] = status
+            message["metadata"] = metadata
+            message["content"] = (
+                "[Historical read is stale; re-read this file before using its contents.]"
+                if status == "stale"
+                else "[Historical read is missing because the file no longer exists.]"
+            )
+
     @classmethod
     def ephemeral(
         cls,

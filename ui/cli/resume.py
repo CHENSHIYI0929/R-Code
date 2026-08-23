@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +131,7 @@ def restore_runtime_from_target(runtime: CliRuntime, target: str) -> CliRuntime:
     file_state_cache = restore_session_state(
         state,
         message_store.current_messages(),
+        message_store=message_store,
     )
     return runtime.with_session(
         state=state,
@@ -141,10 +143,13 @@ def restore_runtime_from_target(runtime: CliRuntime, target: str) -> CliRuntime:
 def restore_session_state(
     state: RuntimeState,
     messages: tuple[dict[str, Any], ...],
+    *,
+    message_store: MessageStore | None = None,
 ) -> FileStateCache:
     file_state_cache = FileStateCache()
     files_read: set[str] = set()
     files_changed: set[str] = set()
+    untrusted: dict[str, str] = {}
 
     for message in messages:
         if message.get("role") != "tool_result" or message.get("is_error") is True:
@@ -165,6 +170,11 @@ def restore_session_state(
             files_changed.add(path_value)
             file_state_cache.snapshot_path(path, partial=False)
         elif tool_name == "read_file":
+            status = _read_result_status(metadata, path)
+            if status is not None:
+                untrusted[path_value] = status
+                files_read.discard(path_value)
+                continue
             # read_file metadata lacks the original limit, so restored cache
             # entries remain partial and cannot authorize unsafe overwrites.
             offset = _int_or_none(metadata.get("offset"))
@@ -174,7 +184,30 @@ def restore_session_state(
         state.metadata["files_read"] = files_read
     if files_changed:
         state.metadata["files_changed"] = files_changed
+    if untrusted:
+        state.metadata["restored_read_status"] = dict(untrusted)
+        if message_store is not None:
+            message_store.mark_restored_read_results_untrusted(untrusted)
     return file_state_cache
+
+
+def _read_result_status(metadata: dict[str, Any], path: Path) -> str | None:
+    fingerprint = metadata.get("fingerprint")
+    if not isinstance(fingerprint, dict):
+        return None
+    required = ("path", "sha256", "mtime", "size", "observed_at")
+    if not all(isinstance(fingerprint.get(key), (str, int)) for key in required):
+        return None
+    if not path.exists() or path.is_dir():
+        return "missing"
+    try:
+        stat = path.stat()
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return "missing"
+    if (fingerprint.get("sha256") != digest or fingerprint.get("mtime") != stat.st_mtime_ns or fingerprint.get("size") != stat.st_size):
+        return "stale"
+    return None
 
 
 def _parse_json_line(line: str) -> dict[str, Any] | None:

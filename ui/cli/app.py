@@ -183,6 +183,22 @@ class BatchUserQuestionPrompter:
         return QuestionResponse(answers=tuple(answers))
 
 
+def production_coding_tool_descriptors():
+    """The file-navigation tools available to every production coding session.
+
+    Runtime-specific tools (bash, tasks, MCP and prompts) are composed by
+    ``build_runtime`` below.  Keeping this core in one entry point prevents
+    benchmark fixtures from silently using a narrower tool surface.
+    """
+    return (
+        read_file_descriptor(),
+        edit_file_descriptor(),
+        write_file_descriptor(),
+        glob_descriptor(),
+        grep_descriptor(),
+    )
+
+
 def build_runtime(
     workspace: Path,
     *,
@@ -259,11 +275,7 @@ def build_runtime(
     plan_store = PlanStore(workspace)
     user_question_prompter = BatchUserQuestionPrompter()
     base_descriptors = (
-        read_file_descriptor(),
-        edit_file_descriptor(),
-        write_file_descriptor(),
-        glob_descriptor(),
-        grep_descriptor(),
+        *production_coding_tool_descriptors(),
         bash_descriptor(background_task_manager),
         background_task_stop_descriptor(background_task_manager),
         skill_descriptor(

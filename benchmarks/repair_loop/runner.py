@@ -28,10 +28,10 @@ async def run_profiles(
     for profile in profiles:
         for case in cases:
             record = await run_case(case, profile)
-        if record.case_id != case.id or record.profile != profile.name:
-            raise ValueError("benchmark adapter returned a record for a different case or profile")
-        legacy_fixture = FixtureSpec(files={"benchmark-case.json": json.dumps({"id": case.id, "prompt": case.prompt, "verification": case.verification}, sort_keys=True)})
-        records.append(replace(record, metadata=record.metadata or collect_metadata(legacy_fixture, model="scripted" if record.tier == "scripted" else "unspecified", feature_flags={f"profile:{profile.name}": True})))
+            if record.case_id != case.id or record.profile != profile.name:
+                raise ValueError("benchmark adapter returned a record for a different case or profile")
+            legacy_fixture = FixtureSpec(files={"benchmark-case.json": json.dumps({"id": case.id, "prompt": case.prompt, "verification": case.verification}, sort_keys=True)})
+            records.append(replace(record, metadata=record.metadata or collect_metadata(legacy_fixture, model="scripted" if record.tier == "scripted" else "unspecified", feature_flags={f"profile:{profile.name}": True})))
     return tuple(records)
 
 
@@ -88,6 +88,11 @@ def _validate_record(definition: ExperimentDefinition, case: CaseContract, profi
     if missing:
         raise ValueError(f"benchmark record is missing metrics: {', '.join(sorted(missing))}")
     allowed_failures = set(definition.failure_taxonomy) | set(case.failure_taxonomy)
+    if not record.success:
+        if record.failure_kind is None:
+            raise ValueError("an unsuccessful benchmark record requires failure_kind")
+        if record.terminal_outcome in {"pass", "completed_verified"}:
+            raise ValueError("an unsuccessful benchmark record cannot have a pass terminal outcome")
     if record.failure_kind is not None and record.failure_kind not in allowed_failures:
         raise ValueError(f"benchmark record has an unknown failure kind: {record.failure_kind}")
     if record.metadata is None:

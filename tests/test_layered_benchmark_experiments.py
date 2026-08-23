@@ -14,6 +14,7 @@ from benchmarks.repair_loop.experiments import (
     long_term_memory,
     repair_loop,
     resume_recovery,
+    resume_staleness,
     session_memory,
     tool_result_store,
 )
@@ -66,6 +67,55 @@ def test_layered_summary_keeps_experiments_separate() -> None:
     assert "memory_on" in summary["session_memory"]["scripted"]
     assert "retrieval_on" in summary["long_term_memory"]["scripted"]
     assert "avg_fact_recall" in summary["session_memory"]["scripted"]["memory_on"]
+
+
+def test_executable_repair_benchmark_derives_terminal_failure_from_runtime() -> None:
+    records = asyncio.run(run_scripted(repair_loop.DEFINITION, repair_loop.CASES))
+    baseline = next(record for record in records if record.profile == "baseline")
+    parser = next(record for record in records if record.profile == "parser")
+
+    # The baseline edits a real fixture file but has no gate, so it must never
+    # be reported as verified/pass. The parser profile must expose whatever
+    # verifier terminal state the real gate produced; it cannot be fabricated
+    # as a pass/none record when that state is unsuccessful.
+    assert baseline.success is False
+    assert baseline.terminal_outcome != "pass"
+    assert baseline.failure_kind == "verification_skipped"
+    assert parser.metrics is not None
+    assert parser.metrics["verification_attempts"] >= 1
+    assert parser.metrics["tool_calls"] >= 3
+    assert parser.event_summary is not None
+    assert parser.event_summary.trace_events > 0
+    if not parser.success:
+        assert parser.terminal_outcome != "pass"
+        assert parser.failure_kind is not None
+
+
+def test_executable_recovery_removes_changed_transcript_fact() -> None:
+    records = asyncio.run(run_scripted(resume_recovery.DEFINITION, resume_recovery.CASES))
+    changed = next(record for record in records if record.profile == "file_modified")
+
+    assert changed.success is True
+    assert changed.failure_kind is None
+    assert changed.metrics is not None
+    assert changed.metrics["stale_reuse"] is False
+
+
+def test_post_resume_staleness_compares_retention_marker_and_reread() -> None:
+    records = asyncio.run(run_scripted(resume_staleness.DEFINITION, resume_staleness.CASES))
+    by_profile = {record.profile: record for record in records}
+
+    for scenario in ("modified", "deleted"):
+        retained = by_profile[f"{scenario}_retain"]
+        marked = by_profile[f"{scenario}_stale_mark"]
+        reread = by_profile[f"{scenario}_force_reread"]
+        assert retained.success is True
+        assert retained.metrics is not None and retained.metrics["stale_fact_used"] is False
+        assert retained.metrics["tool_steps"] == 1
+        assert marked.success is True
+        assert marked.metrics is not None and marked.metrics["tool_steps"] == 1
+        assert reread.success is True
+        assert reread.metrics is not None and reread.metrics["tool_steps"] == 1
 
 
 @pytest.mark.parametrize("module", (tool_result_store, hook_policy))

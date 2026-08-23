@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from pathlib import Path
 from typing import Any
+from datetime import UTC, datetime
 
 from services.tools.types import (
     ToolCallClassification,
@@ -119,6 +121,7 @@ def _handle(
         )
 
     text = read_text_file(path)
+    stat = path.stat()
     lines = text.splitlines()
     offset = int(tool_input.get("offset", 1))
     limit = int(tool_input.get("limit", DEFAULT_LIMIT))
@@ -136,5 +139,12 @@ def _handle(
             "path": str(path),
             "offset": offset,
             "line_count": len(selected),
+            "fingerprint": {
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "mtime": stat.st_mtime_ns,
+                "size": stat.st_size,
+                "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            },
         },
     )
