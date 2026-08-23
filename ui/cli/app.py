@@ -31,6 +31,7 @@ from services.compaction import (
     ContextCompactionService,
     SessionMemoryExtractionService,
     SessionMemoryStore,
+    SessionMemoryToolUpdater,
 )
 from services.context.current_model_context import CurrentModelContext
 from services.context.message_store import MessageStore
@@ -287,6 +288,9 @@ def build_runtime(
         trace_recorder=trace_recorder,
     )
     session_memory_store = SessionMemoryStore(message_store.transcript_store.session_dir)
+    session_memory_tool_updater = SessionMemoryToolUpdater(session_memory_store)
+    hooks.register(HookEvent.POST_TOOL_USE, session_memory_tool_updater.on_tool_result)
+    hooks.register(HookEvent.TOOL_ERROR, session_memory_tool_updater.on_tool_result)
     long_term_memory_store = LongTermMemoryStore(workspace)
     instruction_memory_loader = InstructionMemoryLoader(
         workspace,

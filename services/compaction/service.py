@@ -271,7 +271,12 @@ class ContextCompactionService:
             return None
         if self._session_memory_extractor is not None:
             await self._session_memory_extractor.wait_for_current_extraction(state)
-        memory = self._session_memory_store.read()
+        workspace = state.metadata.get("workspace")
+        memory = (
+            self._session_memory_store.validated_for_injection(workspace)
+            if isinstance(workspace, str)
+            else self._session_memory_store.read()
+        )
         if memory is None or memory.is_empty:
             return None
         token_before = estimate_messages_tokens(messages)

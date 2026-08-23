@@ -6,6 +6,7 @@ from pathlib import Path
 
 from core.runtime_state import RuntimeState
 from services.repair import FailureParser, RepairLoopGate, RepositoryRetriever
+from services.repair.fingerprint import fingerprint_failure
 from utils.toolResultStorage import ToolResultStorage
 
 
@@ -68,3 +69,25 @@ def test_gate_passes_only_after_configured_check_succeeds(tmp_path: Path) -> Non
 
     assert decision.outcome == "pass"
     assert decision.report is not None and decision.report.status == "passed"
+
+
+def test_gate_blocks_environment_failure_without_requesting_code_repair(tmp_path: Path) -> None:
+    (tmp_path / ".onecode").mkdir()
+    (tmp_path / ".onecode" / "settings.json").write_text(
+        json.dumps({"verification": {"commands": [{"argv": ["definitely-not-a-command"]}]}}),
+        encoding="utf-8",
+    )
+    state = RuntimeState()
+    state.metadata["files_changed"] = ["src/a.py"]
+
+    decision = asyncio.run(RepairLoopGate(tmp_path, result_store=ToolResultStorage(tmp_path / "session")).evaluate(state, final_text="done", assistant_message=None))
+
+    assert decision.outcome == "blocked"
+    assert decision.report is not None and decision.report.outcome == "command_missing"
+
+
+def test_failure_fingerprint_ignores_ephemeral_temp_path_and_large_number() -> None:
+    first = FailureParser().parse("FAILED tests/test_x.py::test_x - ValueError: /tmp/run-1234/cache 20240101")
+    second = FailureParser().parse("FAILED tests/test_x.py::test_x - ValueError: /tmp/run-9876/cache 20250909")
+
+    assert fingerprint_failure(first, outcome="test_failed") == fingerprint_failure(second, outcome="test_failed")

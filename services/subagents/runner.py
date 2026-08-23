@@ -243,12 +243,10 @@ class SubagentRunner:
     ) -> None:
         """Mark the child as an internal writer for one session memory file."""
 
-        allowed_path = request.metadata.get("allowed_memory_path")
-        if not isinstance(allowed_path, str) or not allowed_path:
-            return
-        normalized = str(Path(allowed_path).resolve())
+        # The child returns an ExtractionResult as text. It never edits memory
+        # artifacts; the parent SessionMemoryStore is the only writer.
         child_state.metadata["memory_extraction_agent"] = True
-        child_state.metadata["allowed_memory_path"] = normalized
+        child_state.metadata["read_only_agent"] = True
         child_state.metadata["hidden_tools"] = {
             "agent",
             "bash",
@@ -256,7 +254,7 @@ class SubagentRunner:
             "grep",
             "glob",
         }
-        child_state.metadata["files_read"] = {normalized}
+        child_state.metadata["files_read"] = set()
 
     def _configure_long_term_memory_extraction_child(
         self,
@@ -434,11 +432,7 @@ def _child_descriptors(
         # empty registry rather than prompt text.
         return ()
     if session_memory_extraction:
-        return tuple(
-            descriptor
-            for descriptor in base_descriptors
-            if descriptor.name == "edit_file"
-        )
+        return ()
     if long_term_memory_extraction:
         allowed = {"read_file", "grep", "glob", "write_file", "edit_file"}
         return tuple(

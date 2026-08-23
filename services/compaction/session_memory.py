@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import hashlib
+import json
+import os
+import threading
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -20,6 +24,7 @@ SESSION_MEMORY_EXTRACTION_KEY = "session_memory_extraction"
 @dataclass(frozen=True)
 class SessionMemory:
     content: str
+    state: "SessionMemoryState | None" = None
     last_summarized_message_uuid: str = ""
     updated_at: str = ""
     covered_turn_count: int = 0
@@ -27,8 +32,66 @@ class SessionMemory:
 
     @property
     def is_empty(self) -> bool:
+        if self.state is not None:
+            task = self.state.task_state
+            return not (
+                self.state.recent_files
+                or self.state.file_summaries
+                or self.state.episodic_notes
+                or any(task.get(key) for key in ("goal", "constraints", "current_plan", "confirmed_findings", "open_questions", "errors", "next_action"))
+            )
         body = _strip_front_matter(self.content).strip()
         return not body or body == "# Session Memory"
+
+
+@dataclass(frozen=True)
+class FileFingerprint:
+    path: str
+    mtime_ns: int
+    size: int
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class FileSummary:
+    path: str
+    fingerprint: FileFingerprint
+    summary: str
+    observed_range: tuple[int, int] | None = None
+    findings: tuple[str, ...] = ()
+    stale: bool = False
+    stale_reason: str = ""
+
+
+@dataclass(frozen=True)
+class SessionMemoryState:
+    schema_version: int = 2
+    task_state: dict[str, Any] = field(default_factory=lambda: {
+        "goal": "", "constraints": [], "current_plan": [], "confirmed_findings": [],
+        "open_questions": [], "errors": [], "next_action": "",
+    })
+    recent_files: tuple[str, ...] = ()
+    file_summaries: tuple[FileSummary, ...] = ()
+    episodic_notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MemoryFact:
+    value: str
+    source: str
+    priority: int
+    observed_at: str
+    source_refs: tuple[str, ...] = ()
+    stale: bool = False
+
+
+FACT_PRIORITY = {"speculation": 1, "llm_extraction": 2, "tool": 3, "user": 4}
+
+
+@dataclass(frozen=True)
+class ExtractionResult:
+    facts: tuple[MemoryFact, ...] = ()
+    task_updates: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -65,18 +128,25 @@ class SessionMemoryStore:
 
     def __init__(self, session_dir: Path | str) -> None:
         self._session_dir = Path(session_dir)
+        self._lock = threading.RLock()
 
     @property
     def path(self) -> Path:
         return self._session_dir / "session-memory.md"
 
+    @property
+    def state_path(self) -> Path:
+        return self._session_dir / "session-memory.json"
+
     def read(self) -> SessionMemory | None:
-        if not self.path.exists():
+        if not self.path.exists() and not self.state_path.exists():
             return None
-        content = self.path.read_text(encoding="utf-8")
+        content = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
         metadata = _parse_front_matter(content)
+        state = self.read_state()
         return SessionMemory(
             content=content,
+            state=state,
             last_summarized_message_uuid=metadata.get("last_summarized_message_uuid", ""),
             updated_at=metadata.get("updated_at", ""),
             covered_turn_count=_int_or_zero(metadata.get("covered_turn_count")),
@@ -84,8 +154,110 @@ class SessionMemoryStore:
         )
 
     def write(self, memory: SessionMemory) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(_render_memory(memory), encoding="utf-8")
+        with self._lock:
+            if memory.state is not None:
+                self.write_state(memory.state, metadata=memory)
+                return
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(_render_memory(memory), encoding="utf-8")
+
+    def read_state(self) -> SessionMemoryState | None:
+        """Read only the canonical JSON state; Markdown is never an input."""
+        try:
+            raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+            return _state_from_dict(raw)
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            return None
+
+    def write_state(self, state: SessionMemoryState, *, metadata: SessionMemory | None = None) -> SessionMemory:
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            rendered = _render_structured_memory(state)
+            memory = SessionMemory(
+                content=rendered,
+                state=state,
+                last_summarized_message_uuid=(metadata.last_summarized_message_uuid if metadata else ""),
+                updated_at=(metadata.updated_at if metadata else _now()),
+                covered_turn_count=(metadata.covered_turn_count if metadata else 0),
+                source=(metadata.source if metadata else "runtime"),
+            )
+            _atomic_write(self.state_path, json.dumps(_state_to_dict(state), ensure_ascii=False, indent=2))
+            _atomic_write(self.path, _render_memory(memory))
+            return memory
+
+    def update_from_tool_payload(self, payload: dict[str, Any]) -> None:
+        """Persist deterministic file/command facts from a completed tool hook."""
+        result = payload.get("result")
+        if result is None:
+            return
+        tool_name = getattr(result, "tool_name", "")
+        metadata = getattr(result, "metadata", {}) or {}
+        is_error = bool(getattr(result, "is_error", False))
+        tool_input = payload.get("tool_input") or {}
+        with self._lock:
+            state = self.read_state() or SessionMemoryState()
+            summaries = {item.path: item for item in state.file_summaries}
+            recent = list(state.recent_files)
+            errors = list(state.task_state.get("errors", []))
+            path = metadata.get("path") if isinstance(metadata, dict) else None
+            if tool_name == "read_file" and not is_error and isinstance(path, str):
+                summary = _observe_file(Path(path), tool_input, str(getattr(result, "content", "")))
+                if summary is not None:
+                    summaries[path] = summary
+                    recent = [path, *[item for item in recent if item != path]][:20]
+            elif tool_name in {"edit_file", "write_file", "filewrite"} and not is_error and isinstance(path, str):
+                if path in summaries:
+                    old = summaries[path]
+                    summaries[path] = replace(old, stale=True, stale_reason="written_after_summary")
+            elif tool_name == "bash" and is_error and isinstance(metadata, dict):
+                errors.append({"tool": "bash", "command": tool_input.get("command", ""), "exit_code": metadata.get("exit_code"), "error": metadata.get("error", "command_failed")})
+                errors = errors[-20:]
+            else:
+                return
+            task_state = dict(state.task_state)
+            task_state["errors"] = errors
+            self.merge_state(replace(state, task_state=task_state, recent_files=tuple(recent), file_summaries=tuple(summaries.values())), source="tool")
+
+    def merge_state(self, incoming: SessionMemoryState, *, source: str) -> SessionMemory:
+        """Merge through the single writer, keeping higher-priority facts."""
+        with self._lock:
+            current = self.read_state() or SessionMemoryState()
+            priority = FACT_PRIORITY.get(source, FACT_PRIORITY["speculation"])
+            task = dict(current.task_state)
+            for key, value in incoming.task_state.items():
+                existing_priority = int(task.get(f"_{key}_priority", 0) or 0)
+                if value and priority >= existing_priority:
+                    task[key] = value
+                    task[f"_{key}_priority"] = priority
+            summaries = {item.path: item for item in current.file_summaries}
+            # File observations and invalidations are deterministic tool facts;
+            # lower-priority extraction cannot overwrite them.
+            if priority >= FACT_PRIORITY["tool"]:
+                summaries.update({item.path: item for item in incoming.file_summaries})
+            notes = tuple(dict.fromkeys((*current.episodic_notes, *incoming.episodic_notes)))
+            return self.write_state(replace(current, task_state=task, recent_files=tuple(dict.fromkeys((*incoming.recent_files, *current.recent_files)))[:20], file_summaries=tuple(summaries.values()), episodic_notes=notes))
+
+    def merge_extraction(self, extraction: ExtractionResult) -> SessionMemory:
+        task = dict(extraction.task_updates)
+        task["confirmed_findings"] = [fact.__dict__ for fact in extraction.facts if not fact.stale]
+        return self.merge_state(SessionMemoryState(task_state=task), source="llm_extraction")
+
+    def validated_for_injection(self, workspace: Path | str) -> SessionMemory | None:
+        memory = self.read()
+        if memory is None or memory.state is None:
+            return memory
+        root = Path(workspace).resolve()
+        changed = False
+        summaries: list[FileSummary] = []
+        for item in memory.state.file_summaries:
+            fresh = _summary_is_fresh(item, root)
+            next_item = item if fresh else replace(item, stale=True, stale_reason="file_changed_or_missing")
+            changed = changed or next_item != item
+            summaries.append(next_item)
+        state = replace(memory.state, file_summaries=tuple(summaries))
+        if changed:
+            memory = self.write_state(state, metadata=memory)
+        return replace(memory, content=_render_structured_memory(state))
 
 
 class SessionMemoryUpdater:
@@ -297,7 +469,6 @@ class SessionMemoryExtractionService:
             try:
                 request = SubagentRequest(
                     prompt=_memory_extraction_prompt(
-                        memory_path=self._store.path,
                         current_memory=self._store.read(),
                     ),
                     subagent_type=None,
@@ -305,12 +476,13 @@ class SessionMemoryExtractionService:
                     parent_tool_call_id=job.parent_tool_call_id,
                     metadata={
                         "purpose": "session_memory_extraction",
-                        "allowed_memory_path": str(self._store.path.resolve()),
                     },
                 )
                 result = await self._subagent_runner.run(request)
                 if result.is_error:
                     raise RuntimeError(result.final_text)
+                extraction = _parse_extraction_result(result.final_text)
+                self._store.merge_extraction(extraction)
                 _merge_extraction_metadata(
                     state,
                     {
@@ -569,6 +741,86 @@ def _render_memory(memory: SessionMemory) -> str:
     )
 
 
+def _state_to_dict(state: SessionMemoryState) -> dict[str, Any]:
+    return {
+        "schema_version": state.schema_version,
+        "task_state": state.task_state,
+        "recent_files": list(state.recent_files),
+        "file_summaries": [
+            {"path": item.path, "fingerprint": item.fingerprint.__dict__, "summary": item.summary,
+             "observed_range": list(item.observed_range) if item.observed_range else None,
+             "findings": list(item.findings), "stale": item.stale, "stale_reason": item.stale_reason}
+            for item in state.file_summaries
+        ],
+        "episodic_notes": list(state.episodic_notes),
+    }
+
+
+def _state_from_dict(raw: Any) -> SessionMemoryState:
+    if not isinstance(raw, dict):
+        raise ValueError("session memory state must be an object")
+    summaries = []
+    for item in raw.get("file_summaries", []):
+        if not isinstance(item, dict) or not isinstance(item.get("fingerprint"), dict):
+            continue
+        fingerprint = item["fingerprint"]
+        summaries.append(FileSummary(
+            path=str(item.get("path", "")),
+            fingerprint=FileFingerprint(str(fingerprint.get("path", item.get("path", ""))), int(fingerprint.get("mtime_ns", 0)), int(fingerprint.get("size", 0)), str(fingerprint.get("content_hash", ""))),
+            summary=str(item.get("summary", "")),
+            observed_range=tuple(item["observed_range"]) if isinstance(item.get("observed_range"), list) and len(item["observed_range"]) == 2 else None,
+            findings=tuple(str(value) for value in item.get("findings", []) if isinstance(value, str)),
+            stale=bool(item.get("stale", False)), stale_reason=str(item.get("stale_reason", "")),
+        ))
+    task_state = raw.get("task_state") if isinstance(raw.get("task_state"), dict) else {}
+    return SessionMemoryState(task_state=task_state, recent_files=tuple(str(value) for value in raw.get("recent_files", []) if isinstance(value, str)), file_summaries=tuple(summaries), episodic_notes=tuple(str(value) for value in raw.get("episodic_notes", []) if isinstance(value, str)))
+
+
+def _render_structured_memory(state: SessionMemoryState) -> str:
+    task = state.task_state
+    fresh = [item for item in state.file_summaries if not item.stale]
+    lines = ["# Session Memory", "", "## Current Goal", str(task.get("goal") or "Not yet established."), "", "## User Constraints", _bullet_lines([str(item) for item in task.get("constraints", [])]), "", "## Confirmed Findings", _bullet_lines([str(item) for item in task.get("confirmed_findings", [])]), "", "## Relevant Files"]
+    lines.extend(f"- {item.path}: {item.summary}" for item in fresh) if fresh else lines.append("- None recorded.")
+    lines.extend(["", "## Errors And Fixes", _bullet_lines([str(item) for item in task.get("errors", [])]), "", "## Pending Work", _bullet_lines([str(item) for item in task.get("current_plan", [])]), "", "## Episodic Notes", _bullet_lines(list(state.episodic_notes)), "", "## Next Step", str(task.get("next_action") or "Continue from recent messages.")])
+    return "\n".join(lines) + "\n"
+
+
+def _observe_file(path: Path, tool_input: dict[str, Any], content: str) -> FileSummary | None:
+    try:
+        resolved = path.resolve()
+        raw = resolved.read_bytes()
+        stat = resolved.stat()
+    except OSError:
+        return None
+    offset = tool_input.get("offset", 1)
+    line_count = max(0, content.count("\n") + (1 if content else 0))
+    preview = " ".join(content.split())[:500] or "File observed."
+    return FileSummary(str(resolved), FileFingerprint(str(resolved), stat.st_mtime_ns, stat.st_size, hashlib.sha256(raw).hexdigest()), f"Read from line {offset}; {line_count} displayed line(s). {preview}", (int(offset) if isinstance(offset, int) else 1, line_count))
+
+
+def _summary_is_fresh(item: FileSummary, workspace: Path) -> bool:
+    try:
+        path = Path(item.path).resolve()
+        path.relative_to(workspace)
+        raw = path.read_bytes()
+        stat = path.stat()
+    except (OSError, ValueError):
+        return False
+    return stat.st_size == item.fingerprint.size and hashlib.sha256(raw).hexdigest() == item.fingerprint.content_hash
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _legacy_state(content: str) -> SessionMemoryState:
+    """Preserve legacy/LLM Markdown as an episodic note during migration."""
+    body = _strip_front_matter(content).strip()
+    return SessionMemoryState(episodic_notes=(body,) if body else ())
+
+
 def _parse_front_matter(content: str) -> dict[str, str]:
     lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -692,24 +944,37 @@ def _is_tool_use_block(block: Any) -> bool:
 
 def _memory_extraction_prompt(
     *,
-    memory_path: Path,
     current_memory: SessionMemory | None,
 ) -> str:
     current = current_memory.content if current_memory is not None else ""
     return "\n".join(
         [
-            "Update the current session memory Markdown file.",
-            "",
-            f"Target file: {memory_path.resolve()}",
+            "Extract durable session facts. Do not call tools and do not edit files.",
             "",
             "Rules:",
-            "- Edit only the target file.",
-            "- Preserve YAML front matter if it exists.",
-            "- Keep the memory concise and useful for continuing this session.",
-            "- Include these sections when useful: Current Goal, User Constraints, Key Findings, Relevant Files, Errors And Fixes, Pending Work, Next Step.",
-            "- Do not write a long explanation to the parent. The file edit is the result.",
+            "- Return only JSON: {\"facts\":[{\"value\":str,\"source_refs\":[str]}],\"task_updates\":{...}}.",
+            "- Facts are lower-priority LLM extraction; only include durable, non-speculative facts.",
+            "- Do not include stale file conclusions, todos, or unverified errors.",
             "",
             "Current session memory:",
             current.strip() or "(missing)",
         ]
     )
+
+
+def _parse_extraction_result(text: str) -> ExtractionResult:
+    try:
+        raw = json.loads(text.strip())
+    except (TypeError, ValueError):
+        return ExtractionResult()
+    if not isinstance(raw, dict):
+        return ExtractionResult()
+    facts: list[MemoryFact] = []
+    for item in raw.get("facts", []):
+        if not isinstance(item, dict) or not isinstance(item.get("value"), str):
+            continue
+        refs = item.get("source_refs", ())
+        refs = refs if isinstance(refs, list) else ()
+        facts.append(MemoryFact(item["value"], "llm_extraction", FACT_PRIORITY["llm_extraction"], _now(), tuple(str(ref) for ref in refs), bool(item.get("stale", False))))
+    updates = raw.get("task_updates") if isinstance(raw.get("task_updates"), dict) else {}
+    return ExtractionResult(tuple(facts), dict(updates))

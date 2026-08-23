@@ -1,0 +1,14 @@
+[
+  {
+    "id": "python-bug-fix-001",
+    "category": "python_bug_fix",
+    "prompt": "Fix the failing edge case and run the configured verification.",
+    "verification": [["python", "-m", "pytest", "tests", "-q"]]
+  },
+  {
+    "id": "missing-implementation-001",
+    "category": "missing_implementation",
+    "prompt": "Implement the missing behavior required by the failing test.",
+    "verification": [["python", "-m", "pytest", "tests", "-q"]]
+  }
+]

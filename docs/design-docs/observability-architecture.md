@@ -75,6 +75,7 @@ flowchart TD
 | compaction | event `compact_prepare`、`compact_auto_decision`、`compact_start`、`compact_completed`、`compact_failed`、`compact_result_budget`、`compact_micro` |
 | session memory | event `session_memory_update`、`session_memory_extraction_decision`/`_completed`/`_failed` |
 | long-term memory | event `long_term_memory_selector_completed`/`_failed`、`long_term_memory_extraction_decision`/`_completed`/`_cancelled`/`_failed` |
+| repair loop | event `verification_finished`、`verification_timeout`、`verification_passed`、`verification_failed`、`verification_blocked`、`repair_exhausted`；`verification_finished` 记录 coarse status 和细粒度 outcome，通用 `transition` 记录 gate 的最终控制流 |
 
 trace 只记录摘要 metadata，不记录完整 prompt、源码或工具输出。
 

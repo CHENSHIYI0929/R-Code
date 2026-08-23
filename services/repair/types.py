@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from services.verification.types import VerificationOutcome
+
 
 VerificationStatus = Literal["passed", "failed", "blocked", "skipped"]
 
@@ -16,6 +18,7 @@ class CheckResult:
     output: str
     duration_ms: int
     status: VerificationStatus
+    outcome: VerificationOutcome | None = None
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,7 @@ class VerificationReport:
     checks: tuple[CheckResult, ...]
     fingerprint: str
     artifact_path: str | None = None
+    outcome: VerificationOutcome | None = None
 
 
 @dataclass(frozen=True)

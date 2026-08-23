@@ -6,7 +6,7 @@ import errno
 from services.errors import (
     AbortError,
     ErrorCategory,
-    R-CodeError,
+    RCodeError,
     error_message,
     errno_code,
     errno_path,
@@ -20,7 +20,7 @@ from services.model.types import ProviderError
 
 
 def test_onecode_error_details_for_base_error() -> None:
-    error = R-CodeError(
+    error = RCodeError(
         "full message",
         category=ErrorCategory.TOOL,
         retryable=True,
@@ -31,7 +31,7 @@ def test_onecode_error_details_for_base_error() -> None:
     details = onecode_error_details(error)
 
     assert details.category == ErrorCategory.TOOL
-    assert details.error_type == "R-CodeError"
+    assert details.error_type == "RCodeError"
     assert details.message == "full message"
     assert details.safe_message == "safe message"
     assert details.retryable is True
@@ -50,7 +50,7 @@ def test_provider_error_inherits_onecode_error_with_category() -> None:
 
     details = onecode_error_details(error)
 
-    assert isinstance(error, R-CodeError)
+    assert isinstance(error, RCodeError)
     assert error.provider_id == "openai"
     assert error.status_code == 429
     assert error.error_type == "rate_limit_error"

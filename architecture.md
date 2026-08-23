@@ -97,6 +97,7 @@ flowchart TD
 | 集成 | `services/mcp/` | MCP server 连接、工具发现、动态 descriptor | `mcp-architecture.md` |
 | 集成 | `services/tasks/` | 文件持久化任务、依赖图、claim | `task-architecture.md` |
 | 集成 | `services/background_tasks/` | 后台 bash/agent/dream 生命周期、通知 | `background-task-architecture.md` |
+| 恢复 | `services/repair/` | 验证门禁、失败解析、仓库证据检索和 repair feedback | `core-runtime-architecture.md` |
 | 边界 | `services/model/` + `infrastructure/` | provider-neutral 模型协议、重试、provider 适配、配置、跨平台路径 | `model-provider-architecture.md` |
 | 边界 | `services/observability/` | 结构化 trace、error log、脱敏 | `observability-architecture.md` |
 | 边界 | `ui/cli/` | 运行时装配、交互、slash 命令、渲染、权限提示 | `cli-architecture.md` |
@@ -127,6 +128,7 @@ R-Code/
     mcp/                     # MCP 集成
     tasks/                   # 任务系统
     background_tasks/        # 后台任务
+    repair/                  # 验证门禁、失败解析、仓库检索、repair context
     model/                   # 模型协议与重试
     observability/           # trace 与 error log
     errors.py                # provider-neutral 错误分类
@@ -149,7 +151,7 @@ R-Code/
 
 ## 核心抽象
 
-`AgentLoop`（`core/loop.py`）是薄主循环。它接收用户输入（`stream`）或从已 seed 的消息链继续（`continue_stream`），每轮调用 `ContextEngine` 构建 `ContextSnapshot`，经 `ModelRetryRunner` 调用 `ModelClient` 消费 provider-neutral stream event，按需调用 `ToolExecutor`，并把 assistant message 与 tool result 写回 `MessageStore`。它只依据实际 tool calls 决定是否续轮，不依赖 provider 私有 `stop_reason`。
+`AgentLoop`（`core/loop.py`）是薄主循环。它接收用户输入（`stream`）或从已 seed 的消息链继续（`continue_stream`），每轮调用 `ContextEngine` 构建 `ContextSnapshot`，经 `ModelRetryRunner` 调用 `ModelClient` 消费 provider-neutral stream event，按需调用 `ToolExecutor`，并把 assistant message 与 tool result 写回 `MessageStore`。它只依据实际 tool calls 决定是否续轮，不依赖 provider 私有 `stop_reason`；当本轮修改过文件且模型尝试结束时，注入的 `FinishGate` 会先进行验证。
 
 `RuntimeState`（`core/runtime_state.py`）保存单会话运行状态：usage、turn count、max turns、恢复标志、session id、last transition 和 metadata。metadata 承载运行期事实，例如 `files_read`、`files_changed`、`disabled_tools`/`denied_tools`/`hidden_tools`、`read_only_agent`、`is_fork_child`、`model_request_overrides`、`task_list_id` 等。
 
@@ -167,6 +169,8 @@ R-Code/
 
 `SandboxGuard` 与 `PermissionPolicy` 共同构成执行前安全边界：guard 做确定性路径分类，permission policy 做 deny-first 决策合并。`HookRegistry` 是生命周期扩展点，hook 不能绕过 guard deny。`TraceRecorder` 与 `ErrorLogRecorder` 是结构化可观测性入口。
 
+`RepairLoopGate`（`services/repair/gate.py`）是 CLI 装配的 `FinishGate` 实现。它只在 executor 已记录 `files_changed` 时，将 `.onecode/settings.json` 的 `verification.commands` 交给 `services/verification/VerificationExecutor`（Python 项目默认测试命令作为后备）。该执行器只运行 workspace cwd 中的 argv、拒绝 shell 语法、记录 artifact，并会在 timeout 后清理进程组。`VerificationReport` 保留 `passed`/`failed`/`blocked` 的粗粒度 status，同时以 outcome 区分 `test_failed`、命令缺失、环境阻塞、timeout 与 permission denied；只有 `test_failed` 会经 `FailureParser` 提取路径、行号、测试节点和异常信息，再由 `RepositoryRetriever` 读取受预算约束的相关片段，最终以 durable `repair_feedback` attachment 写回消息链。稳定指纹由归一化 evidence 构成，下一轮模型因此带着失败证据继续修复。成功才允许 `completed_verified`。
+
 ## 运行流程
 
 ```mermaid
@@ -182,6 +186,7 @@ flowchart TD
   Retry --> ModelClient["ModelClient"]
   ModelClient --> Provider["infrastructure/providers"]
   Loop --> Executor["RegistryToolExecutor"]
+  Loop --> Gate["FinishGate / RepairLoopGate"]
   Executor --> Guard["SandboxGuard"]
   Executor --> Permission["PermissionPolicy"]
   Executor --> Hooks["HookRegistry"]
@@ -203,7 +208,7 @@ flowchart TD
 7. 若 `context_limit_exceeded` 且首次，触发 reactive compact 并 `reactive_compact_retry`；若输出被截断，触发 max-output escalate / recovery。
 8. loop 累计 usage、写入 assistant message，触发 `AssistantMessageCompleted` hook（可触发 session memory 提取）。
 9. 若存在实际 tool calls，交给 `RegistryToolExecutor`（preflight → guard → permission → hook → handler → 结果预算 → side effect → trace），把结果与 followup 写回，设置 `tool_use` transition，进入下一轮。
-10. 若没有 tool calls，触发 `TurnStopped` hook（CLI 据此启动 long-term memory dream 后台任务），设置 `completed` transition，返回最终文本。
+10. 若没有 tool calls，loop 先询问可选 `FinishGate`。无文件修改时直接通过；验证成功设置 `completed_verified`；验证失败则追加 `repair_feedback` attachment、设置 `verification_failed_retry` 并继续；命令不可运行或失败重试预算耗尽时分别以 `verification_blocked` 或 `repair_exhausted` 停止。通过后才触发 `TurnStopped` hook（CLI 据此启动 long-term memory dream 后台任务）并返回最终文本。
 
 ## 依赖方向
 

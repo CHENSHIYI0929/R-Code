@@ -71,6 +71,7 @@ flowchart TD
 | `background_task_notification` | synthetic `user`：`<task_notification>` XML |
 | `relevant_memories` / `nested_memory` | synthetic `user`：`[memory attachment]` |
 | `plan_mode` / `hook_result` | synthetic `user` notice |
+| `repair_feedback` | synthetic `user`：验证 artifact、结构化失败证据和相关代码片段 |
 | `attachment_error` | synthetic `user`：resolution error |
 | 未知 | `Unsupported attachment type: ...` |
 
@@ -92,3 +93,7 @@ CLI 或其他入口只负责在调用 loop 前收集并提交预构建 attachmen
 ### plan_mode
 
 `plan_mode` attachment 仅在 `AttachmentProjector` 有投影逻辑，当前 collector/runtime 无主动生产路径，是预留类型。
+
+### repair_feedback
+
+`RepairLoopGate` 在验证失败且仍可重试时主动生产 `repair_feedback` attachment，而不是由 `AttachmentCollector` 从用户输入收集。payload 包含 attempt、验证 artifact 路径、changed files、`FailureParser` 的 evidence、`RepositoryRetriever` 的 snippets 和有界输出预览。projector 将它投影为 `[repair feedback]` synthetic user message，明确要求模型基于证据修复并重新验证。完整输出不进入模型普通上下文；模型可通过只读文件工具读取 artifact。

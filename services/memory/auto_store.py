@@ -80,6 +80,17 @@ class LongTermMemoryStore:
             rendered = rendered[:max_chars].rstrip() + "\n[Memory topic truncated]"
         return rendered
 
+    def is_injectable(self, relative_path: str | Path) -> bool:
+        """Fail closed for explicitly stale or missing long-term topics."""
+        try:
+            path = normalize_memory_path(relative_path, self.workspace)
+            if not is_auto_memory_path(path, self.workspace) or not path.is_file():
+                return False
+            metadata, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+            return clean_string(metadata.get("stale")).lower() not in {"true", "1", "yes"}
+        except (OSError, UnicodeDecodeError):
+            return False
+
     def rebuild_entrypoint(self) -> None:
         self.ensure_exists()
         lines = [

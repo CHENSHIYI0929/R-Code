@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from services.errors import ErrorCategory, R-CodeError
+from services.errors import ErrorCategory, RCodeError
 from services.tools.types import ToolCall
 
 
-class ProviderError(R-CodeError):
+class ProviderError(RCodeError):
     """Provider-neutral model error raised by infrastructure adapters."""
 
     def __init__(

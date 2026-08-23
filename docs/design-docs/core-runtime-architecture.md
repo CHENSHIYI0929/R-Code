@@ -6,7 +6,7 @@
 
 | 文件 | 职责 |
 |:---|:---|
-| `core/loop.py` | 薄主循环 `AgentLoop`：上下文重建 → 模型流式调用 → 工具执行 → transition/completed |
+| `core/loop.py` | 薄主循环 `AgentLoop`：上下文重建 → 模型流式调用 → 工具执行 → finish gate → transition/completed |
 | `core/context_engine.py` | 每轮模型调用前重建 `ContextSnapshot` 的边界层及三个可注入协议 |
 | `core/runtime_state.py` | 单会话可变状态（usage、轮次、恢复标志、session id、metadata） |
 | `core/transitions.py` | provider-neutral 的 `TransitionReason` 枚举 |
@@ -89,7 +89,14 @@ sequenceDiagram
       Loop->>Store: append_tool_results (+followup)
       Loop->>Loop: set tool_use → continue
     else 无 tool_calls
-      Loop->>Loop: TurnStopped hook → completed → return
+      Loop->>Gate: FinishGate.evaluate（仅文件修改后验证）
+      alt verification failed
+        Gate-->>Loop: repair_feedback attachment
+        Loop->>Store: append_attachments
+        Loop->>Loop: verification_failed_retry → continue
+      else verification passed / gate absent
+        Loop->>Loop: TurnStopped hook → completed_verified/completed → return
+      end
     end
   end
 ```
@@ -102,7 +109,7 @@ sequenceDiagram
 
 ### Transition
 
-`TransitionReason`（StrEnum）：`tool_use`、`completed`、`max_turns`、`rate_limit_retry`、`reactive_compact_retry`、`max_output_tokens_escalate`、`max_output_tokens_recovery`、`stop_hook_continue`。
+`TransitionReason`（StrEnum）：`tool_use`、`completed`、`completed_verified`、`verification_failed_retry`、`verification_blocked`、`repair_exhausted`、`max_turns`、`rate_limit_retry`、`reactive_compact_retry`、`max_output_tokens_escalate`、`max_output_tokens_recovery`、`stop_hook_continue`。
 
 | Transition | 触发条件 | loop 行为 |
 |:---|:---|:---|
@@ -112,9 +119,17 @@ sequenceDiagram
 | `max_output_tokens_escalate` | 首次 `output_interrupted` | 设 `max_output_tokens=64000`，`continue`，不 append assistant |
 | `max_output_tokens_recovery` | 再次 interrupted 且 recovery < 3 | append 截断 assistant + continuation prompt，`continue` |
 | `tool_use` | 有实际 tool calls | append 结果后 `continue` |
-| `completed` | 无 tool calls 自然结束 | return final text |
+| `completed` | 无 finish gate 的无 tool calls 自然结束 | return final text |
+| `completed_verified` | 修改后的候选结束通过 `FinishGate` 验证 | return final text，并在 metadata 标记验证通过 |
+| `verification_failed_retry` | 验证失败且未超过 repair budget | append durable `repair_feedback` 后 `continue` |
+| `verification_blocked` | 修改后没有可运行的验证命令，或 verification outcome 是命令缺失、环境阻塞、timeout、permission denied | 停止，不把结果称作已验证 |
+| `repair_exhausted` | 验证失败重复或 repair attempt 耗尽 | 停止并保留最后一次验证 artifact |
 
 `stop_hook_continue` 已在枚举中定义，loop 当前未消费，是目标恢复能力。
+
+### Verification-gated finish
+
+`FinishGate` 是 `core/loop.py` 内的 provider-neutral protocol。它返回 `FinishDecision` 风格的 outcome：`pass`、`continue`、`blocked` 或 `exhausted`。core 只消费 outcome、可选 attachment 和人类可读 message；它不理解 pytest、shell 命令、traceback 或检索实现。CLI 注入 `services.repair.RepairLoopGate`：该服务仅在 `RuntimeState.metadata["files_changed"]` 非空时运行验证。失败输出经共享 `ToolResultStorage` 写入 session artifact，以 `FailureParser` 和 `RepositoryRetriever` 生成 bounded repair context；重复相同失败或达到最大 attempt 会停止，避免无限修复循环。
 
 ### 错误恢复分层
 

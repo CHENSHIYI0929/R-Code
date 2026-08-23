@@ -9,6 +9,8 @@ from typing import Any
 from core.runtime_state import RuntimeState
 from services.background_tasks import BackgroundTaskManager
 from services.compaction import (
+    ExtractionResult,
+    SessionMemoryState,
     SessionMemoryExtractionPolicy,
     SessionMemoryExtractionService,
     SessionMemoryStore,
@@ -146,7 +148,7 @@ class FakeMemoryRunner:
         return SubagentResult(
             agent_type="fork",
             session_id="child-memory",
-            final_text="updated",
+            final_text='{"facts":[{"value":"repository uses tabs","source_refs":["message-1"]}],"task_updates":{"goal":"keep style"}}',
             metadata={"is_fork": True},
         )
 
@@ -185,8 +187,36 @@ def test_extraction_service_prepares_and_runs_background_job(
     request = runner.requests[0]
     assert request.subagent_type is None
     assert request.metadata["purpose"] == "session_memory_extraction"
-    assert request.metadata["allowed_memory_path"] == str(store.path.resolve())
+    assert "allowed_memory_path" not in request.metadata
+    stored = store.read_state()
+    assert stored is not None
+    assert stored.task_state["goal"] == "keep style"
+    assert store.path.exists() and store.state_path.exists()
     assert state.metadata["session_memory_extraction"]["last_status"] == "success"
+
+
+def test_markdown_never_overrides_canonical_json(tmp_path: Path) -> None:
+    store = SessionMemoryStore(tmp_path / "session")
+    store.merge_extraction(
+        ExtractionResult(task_updates={"goal": "canonical goal"})
+    )
+    store.path.write_text("# Session Memory\n\n## Current Goal\nmarkdown override", encoding="utf-8")
+
+    state = store.read_state()
+
+    assert state is not None
+    assert state.task_state["goal"] == "canonical goal"
+
+
+def test_lower_priority_extraction_cannot_override_tool_fact(tmp_path: Path) -> None:
+    store = SessionMemoryStore(tmp_path / "session")
+    store.merge_state(SessionMemoryState(task_state={"goal": "tool goal"}), source="tool")
+    store.merge_extraction(ExtractionResult(task_updates={"goal": "llm goal"}))
+
+    state = store.read_state()
+
+    assert state is not None
+    assert state.task_state["goal"] == "tool goal"
 
 
 def test_background_session_memory_extractor_schedules_dream_without_waiting(
@@ -281,7 +311,7 @@ def make_runner(
     return runner, model, parent_store, workspace
 
 
-def test_memory_extraction_child_only_exposes_edit_file_schema(
+def test_memory_extraction_child_exposes_no_tool_schema(
     tmp_path: Path,
 ) -> None:
     memory_path = tmp_path / ".onecode" / "parent-session" / "session-memory.md"
@@ -312,11 +342,10 @@ def test_memory_extraction_child_only_exposes_edit_file_schema(
 
     assert result.is_error is False
     rendered_schema = json.dumps(model.snapshots[0].tool_schemas)
-    assert "edit_file" in rendered_schema
-    assert "read_file" not in rendered_schema
+    assert rendered_schema == "[]"
 
 
-def test_memory_extraction_child_denies_editing_non_memory_path(
+def test_memory_extraction_child_rejects_tool_calls(
     tmp_path: Path,
 ) -> None:
     memory_path = tmp_path / ".onecode" / "parent-session" / "session-memory.md"
@@ -362,6 +391,5 @@ def test_memory_extraction_child_denies_editing_non_memory_path(
 
     assert result.final_text == "reported"
     payload = json.loads(model.snapshots[1].messages[-1]["content"])
-    assert payload["error"] == "permission_denied"
-    assert payload["source"] == "memory_extraction_agent"
+    assert payload["error"] == "unknown_tool"
     assert not other_path.exists()

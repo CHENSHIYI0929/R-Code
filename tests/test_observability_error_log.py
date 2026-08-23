@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from infrastructure.filesystem.onecode_paths import session_dir, sessions_dir
-from services.errors import R-CodeError, ErrorCategory
+from services.errors import RCodeError, ErrorCategory
 from services.observability.error_log import ErrorLogRecorder, JsonlErrorLogSink
 
 
@@ -24,7 +24,7 @@ def test_jsonl_error_log_writes_sanitized_records(tmp_path: Path) -> None:
         sink=sink,
         clock=lambda: datetime(2026, 6, 7, tzinfo=timezone.utc),
     )
-    error = R-CodeError(
+    error = RCodeError(
         f"failed in {workspace}\\secret.py with Bearer abc.def and sk-testsecret123",
         category=ErrorCategory.INTERNAL,
         safe_message="Internal failure.",

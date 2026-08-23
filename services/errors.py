@@ -42,7 +42,7 @@ class ErrorDetails:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-class R-CodeError(Exception):
+class RCodeError(Exception):
     """Base class for classified runtime errors."""
 
     def __init__(
@@ -62,12 +62,12 @@ class R-CodeError(Exception):
         self.metadata = dict(metadata or {})
 
 
-class AbortError(R-CodeError):
+class AbortError(RCodeError):
     def __init__(self, message: str = "Operation aborted.") -> None:
         super().__init__(message, category=ErrorCategory.ABORT, safe_message=message)
 
 
-class ConfigParseError(R-CodeError):
+class ConfigParseError(RCodeError):
     def __init__(
         self,
         message: str,
@@ -83,7 +83,7 @@ class ConfigParseError(R-CodeError):
         )
 
 
-class ShellError(R-CodeError):
+class ShellError(RCodeError):
     def __init__(
         self,
         message: str = "Shell command failed.",
@@ -107,7 +107,7 @@ class ShellError(R-CodeError):
         self.interrupted = interrupted
 
 
-class McpOperationError(R-CodeError):
+class McpOperationError(RCodeError):
     def __init__(
         self,
         message: str,
@@ -125,7 +125,7 @@ class McpOperationError(R-CodeError):
         )
 
 
-class ToolRuntimeError(R-CodeError):
+class ToolRuntimeError(RCodeError):
     def __init__(
         self,
         message: str,
@@ -141,7 +141,7 @@ class ToolRuntimeError(R-CodeError):
         )
 
 
-class RetryExhaustedError(R-CodeError):
+class RetryExhaustedError(RCodeError):
     def __init__(
         self,
         message: str,
@@ -216,7 +216,7 @@ def is_abort_error(value: object) -> bool:
 
 def onecode_error_details(value: object) -> ErrorDetails:
     error = to_error(value)
-    if isinstance(error, R-CodeError):
+    if isinstance(error, RCodeError):
         return ErrorDetails(
             category=error.category,
             error_type=_error_type(error),

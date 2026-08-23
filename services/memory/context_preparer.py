@@ -72,13 +72,21 @@ class RelevantMemoryContextPreparer:
         messages: tuple[dict[str, Any], ...],
         state: RuntimeState,
     ) -> tuple[dict[str, Any], ...]:
-        catalog = self.store.scan()
-        selected = await self.selector.select(messages, state, catalog)
+        try:
+            catalog = tuple(item for item in self.store.scan() if self.store.is_injectable(item.relative_path))
+            selected = await self.selector.select(messages, state, catalog)
+        except Exception:
+            return ()
         attachments: list[dict[str, Any]] = []
         total_chars = 0
         surfaced: list[str] = []
         for memory in selected:
-            content = self.store.read_topic(memory.relative_path)
+            if not self.store.is_injectable(memory.relative_path):
+                continue
+            try:
+                content = self.store.read_topic(memory.relative_path)
+            except Exception:
+                continue
             if total_chars + len(content) > self.max_total_chars:
                 content = content[: max(0, self.max_total_chars - total_chars)].rstrip()
                 content += "\n[Memory attachment budget reached]"
