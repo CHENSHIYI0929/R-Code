@@ -15,7 +15,7 @@
 
 ### services/errors.py
 
-provider-neutral 错误分类层，仅依赖 stdlib，供 core/services/infrastructure 共用，避免循环 import。定义 `ErrorCategory`、`ErrorDetails`、`R-CodeError` 及子类（`AbortError`、`ConfigParseError`、`ShellError`、`McpOperationError`、`ToolRuntimeError`、`RetryExhaustedError`）和 `onecode_error_details()` 等工具函数。
+provider-neutral 错误分类层，仅依赖 stdlib，供 core/services/infrastructure 共用，避免循环 import。定义 `ErrorCategory`、`ErrorDetails`、`RCodeError` 及子类（`AbortError`、`ConfigParseError`、`ShellError`、`McpOperationError`、`ToolRuntimeError`、`RetryExhaustedError`）和 `onecode_error_details()` 等工具函数。
 
 ### infrastructure/
 
@@ -38,7 +38,7 @@ provider-neutral 错误分类层，仅依赖 stdlib，供 core/services/infrastr
 
 ### ProviderError
 
-继承 `R-CodeError`。字段：`message`、`provider_id`、`status_code`、`error_type`、`retryable`、`retry_after_seconds`。已知 `error_type`：`rate_limit_error`、`context_limit_exceeded`、`network_error`、`timeout_error`、`configuration_error`、`invalid_response`、`invalid_tool_arguments`。
+继承 `RCodeError`。字段：`message`、`provider_id`、`status_code`、`error_type`、`retryable`、`retry_after_seconds`。已知 `error_type`：`rate_limit_error`、`context_limit_exceeded`、`network_error`、`timeout_error`、`configuration_error`、`invalid_response`、`invalid_tool_arguments`。
 
 ### ModelUsage
 

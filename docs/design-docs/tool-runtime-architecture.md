@@ -100,6 +100,8 @@ executor 的 JSON Schema 子集校验 → 工具级 `validate_input` → 文件�
 
 `skill` 工具结果中的 `metadata.allowed_tools` 不由 executor 写入共享 session grant；fork skill 的临时授权由 child-local permission policy 处理，inline skill 只加载内容。
 
+CLI 可在 `PostToolUse` 与 `ToolError` 上注册观察型 side-effect service。例如 session memory updater 消费成功文件工具结果的 `metadata.path` 和 tool input，记录确定性文件 fingerprint 或标记摘要 stale；它不修改 executor 的公开协议，也不能使已完成的工具调用失败。由于 `PostToolUse` 发生在 executor 内建 `files_read/files_changed` side effect 之前，hook 必须只依赖 payload 中的 result、input 和 classification。
+
 ### followup_messages
 
 handler 可设置（当前仅 inline skill 使用），主循环把成功结果的 followup 追加到 `MessageStore`（`append_attachments`）。错误结果强制清空 followup。

@@ -30,6 +30,7 @@
       messages.jsonl
       trace.jsonl
       errors.jsonl
+      session-memory.json
       session-memory.md
       tool-results/
         <result-id>.txt
@@ -87,7 +88,8 @@
 | `messages.jsonl` | 完整 transcript，恢复模型上下文的事实来源。 |
 | `trace.jsonl` | 结构化 runtime trace，只记录短小事件和 span，不记录完整 prompt 或工具输出。 |
 | `errors.jsonl` | 不可恢复错误和调试证据，和 trace 分离。 |
-| `session-memory.md` | 单 session 压缩连续性记忆。不是跨会话长期记忆。 |
+| `session-memory.json` | 单 session 机器可读的结构化连续性记忆；包含 task、文件摘要/fingerprint 与 episodic state。 |
+| `session-memory.md` | 由 JSON state 渲染的只读模型可读视图；不作为恢复或合并输入。不是跨会话长期记忆。 |
 | `tool-results/` | 大工具结果外置内容，由 transcript、compaction 和 executor 共享引用。 |
 | `background-tasks/` | 当前 session 启动的后台 bash、agent 或 dream 输出。 |
 | `file-history/` | 本 session 文件编辑前快照，用于 diff、恢复或审计。 |

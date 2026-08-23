@@ -77,6 +77,8 @@ flowchart TD
 - **Layer 1（system prompt）**：`InstructionMemoryLoader` 渲染 ONECODE.md 规则，`LongTermMemoryPromptProvider` 提供记忆目录、类型规则和 `MEMORY.md` 截断索引；两者通过 `prompt-architecture.md` 中的 section 注入，各自带 fingerprint 支持缓存。
 - **Layer 2（runtime attachment）**：每轮 `RelevantMemoryContextPreparer.prepare()` 先 await 内层 preparer（compaction），再用 selector 选中的 topic 全文追加为 synthetic attachment。该 attachment 只在 `prepare()` 时临时加入 `PreparedContext`，**不写回 `MessageStore` 或 transcript**。
 
+长期 topic 在进入 selector catalog 和读取 attachment 前都调用 `LongTermMemoryStore.is_injectable()`；缺失、不可读或 frontmatter 标为 `stale: true` 的 topic 不注入。scan、selector 或 topic read 任一步失败时返回空 attachment，不阻塞主流程。
+
 ### Dream 后台提取
 
 写入通过 `TurnStopped` hook（CLI 注册）启动 `dream` 后台任务，由 fork child 在后台更新 `.onecode/memory/`，不阻塞 turn 结束、不产生用户可见通知（见 `background-task-architecture.md`）。child 被标记 `long_term_memory_extraction_agent`，权限层只允许 `read_file`/`grep`/`glob` 读 + `write_file`/`edit_file` 写 `.onecode/memory/` 下的 `.md` 文件（见 `permission-architecture.md`）。
