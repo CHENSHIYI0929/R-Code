@@ -87,7 +87,7 @@ def _validate_record(definition: ExperimentDefinition, case: CaseContract, profi
     missing = required - metric_names
     if missing:
         raise ValueError(f"benchmark record is missing metrics: {', '.join(sorted(missing))}")
-    allowed_failures = set(definition.failure_taxonomy) | set(case.failure_taxonomy)
+    allowed_failures = set(definition.failure_taxonomy) | set(case.failure_taxonomy) | {"provider_timeout", "invalid_response", "model_call_budget_exceeded", "tool_budget_exceeded", "wall_clock_budget_exceeded", "provider_error"}
     if not record.success:
         if record.failure_kind is None:
             raise ValueError("an unsuccessful benchmark record requires failure_kind")

@@ -1,0 +1,39 @@
+{
+  "case_id": "resume-normal",
+  "profile": "normal",
+  "success": false,
+  "resolved": false,
+  "turns": 1,
+  "tool_calls": 1,
+  "tokens": 0,
+  "latency_ms": 39708,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "error",
+  "experiment": "resume_recovery",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 1,
+    "tool_calls": 1,
+    "tokens": 0,
+    "latency": 39708,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "resume_success": true,
+    "stale_reuse": false,
+    "recovery_steps": 0
+  },
+  "failure_kind": "workspace_changed",
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 9,
+    "tool_events": 1,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 3,
+    "stop_reason": "error"
+  }
+}

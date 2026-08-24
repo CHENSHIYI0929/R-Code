@@ -124,7 +124,8 @@ async def run_smoke(*, env_path: Path, mode: Literal["stream", "nonstream"], tim
                     "Repair the failing test in the known fixture layout: first read "
                     "src/sample.py and tests/test_sample.py. Then edit only the existing "
                     "src/sample.py; do not create helper scripts or inspect guessed paths. "
-                    "Finish after the smallest test-directed repair."
+                    "After the necessary edit, respond with the final answer immediately; "
+                    "do not re-read for self-check because the runtime verifier decides correctness."
                 ):
                     events.append(event)
                     if sum(item.type == "tool_result" for item in events) > max_tool_steps:

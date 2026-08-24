@@ -1,0 +1,42 @@
+{
+  "case_id": "harness-runtime-tool",
+  "profile": "scripted_baseline",
+  "success": true,
+  "resolved": true,
+  "turns": 2,
+  "tool_calls": 1,
+  "tokens": 2572,
+  "latency_ms": 23323,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "completed",
+  "experiment": "harness_regression",
+  "tier": "real_model",
+  "metrics": {
+    "success": true,
+    "resolved": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "tokens": 2572,
+    "latency": 23323,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "runtime_correct": true,
+    "tool_correct": true,
+    "hook_correct": true,
+    "budget_respected": true,
+    "recovery_steps": 0,
+    "security_boundary": true
+  },
+  "failure_kind": null,
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 31,
+    "tool_events": 1,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 0,
+    "stop_reason": "completed"
+  }
+}

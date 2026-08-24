@@ -1,0 +1,40 @@
+{
+  "case_id": "context-short-none",
+  "profile": "short_no_compaction",
+  "success": true,
+  "resolved": true,
+  "turns": 1,
+  "tool_calls": 0,
+  "tokens": 1288,
+  "latency_ms": 1681,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "completed",
+  "experiment": "context_compaction",
+  "tier": "real_model",
+  "metrics": {
+    "success": true,
+    "resolved": true,
+    "turns": 1,
+    "tool_calls": 0,
+    "tokens": 1288,
+    "latency": 1681,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "compression_ratio": 0.2336,
+    "prompt_tokens": 217,
+    "key_fact_retention": true,
+    "task_success": true
+  },
+  "failure_kind": null,
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 13,
+    "tool_events": 0,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 0,
+    "stop_reason": "completed"
+  }
+}

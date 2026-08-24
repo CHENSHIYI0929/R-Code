@@ -1,0 +1,39 @@
+{
+  "case_id": "resume-stale_memory",
+  "profile": "stale_memory",
+  "success": false,
+  "resolved": false,
+  "turns": 3,
+  "tool_calls": 2,
+  "tokens": 2745,
+  "latency_ms": 88152,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "tool_use",
+  "experiment": "resume_recovery",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 3,
+    "tool_calls": 2,
+    "tokens": 2745,
+    "latency": 88152,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "resume_success": true,
+    "stale_reuse": false,
+    "recovery_steps": 2
+  },
+  "failure_kind": "workspace_changed",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 54,
+    "tool_events": 2,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 6,
+    "stop_reason": "tool_use"
+  }
+}

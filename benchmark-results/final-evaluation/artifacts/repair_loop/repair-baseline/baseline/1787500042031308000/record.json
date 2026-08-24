@@ -1,0 +1,36 @@
+{
+  "case_id": "repair-baseline",
+  "profile": "baseline",
+  "success": false,
+  "resolved": false,
+  "turns": 2,
+  "tool_calls": 1,
+  "tokens": 1290,
+  "latency_ms": 55367,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "rate_limit_retry",
+  "experiment": "repair_loop",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 2,
+    "tool_calls": 1,
+    "tokens": 1290,
+    "latency": 55367,
+    "verification_attempts": 0,
+    "repeated_failures": 0
+  },
+  "failure_kind": "provider_timeout",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 37,
+    "tool_events": 1,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 8,
+    "stop_reason": "rate_limit_retry"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "case_id": "session-memory_on",
+  "profile": "memory_on",
+  "success": false,
+  "resolved": false,
+  "turns": 3,
+  "tool_calls": 1,
+  "tokens": 1264,
+  "latency_ms": 55423,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "rate_limit_retry",
+  "experiment": "session_memory",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 3,
+    "tool_calls": 1,
+    "tokens": 1264,
+    "latency": 55423,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "repeated_file_reads": 1,
+    "task_success": false,
+    "fact_recall": false,
+    "stale_injection": false
+  },
+  "failure_kind": "memory_missing",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 40,
+    "tool_events": 1,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 8,
+    "stop_reason": "rate_limit_retry"
+  }
+}

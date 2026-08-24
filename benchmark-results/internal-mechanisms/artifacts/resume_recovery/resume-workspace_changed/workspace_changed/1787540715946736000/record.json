@@ -1,0 +1,39 @@
+{
+  "case_id": "resume-workspace_changed",
+  "profile": "workspace_changed",
+  "success": true,
+  "resolved": true,
+  "turns": 2,
+  "tool_calls": 2,
+  "tokens": 2846,
+  "latency_ms": 16507,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "completed",
+  "experiment": "resume_recovery",
+  "tier": "real_model",
+  "metrics": {
+    "success": true,
+    "resolved": true,
+    "turns": 2,
+    "tool_calls": 2,
+    "tokens": 2846,
+    "latency": 16507,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "resume_success": true,
+    "stale_reuse": false,
+    "recovery_steps": 1
+  },
+  "failure_kind": null,
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 31,
+    "tool_events": 2,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 0,
+    "stop_reason": "completed"
+  }
+}

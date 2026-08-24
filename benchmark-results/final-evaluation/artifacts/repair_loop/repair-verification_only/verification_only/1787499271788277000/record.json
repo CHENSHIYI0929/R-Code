@@ -1,0 +1,36 @@
+{
+  "case_id": "repair-verification_only",
+  "profile": "verification_only",
+  "success": false,
+  "resolved": false,
+  "turns": 6,
+  "tool_calls": 5,
+  "tokens": 7876,
+  "latency_ms": 70701,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "tool_use",
+  "experiment": "repair_loop",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 6,
+    "tool_calls": 5,
+    "tokens": 7876,
+    "latency": 70701,
+    "verification_attempts": 0,
+    "repeated_failures": 0
+  },
+  "failure_kind": "provider_timeout",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 99,
+    "tool_events": 5,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 3,
+    "stop_reason": "tool_use"
+  }
+}

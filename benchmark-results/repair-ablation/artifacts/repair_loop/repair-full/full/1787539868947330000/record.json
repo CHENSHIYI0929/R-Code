@@ -1,0 +1,36 @@
+{
+  "case_id": "repair-full",
+  "profile": "full",
+  "success": true,
+  "resolved": true,
+  "turns": 5,
+  "tool_calls": 4,
+  "tokens": 7698,
+  "latency_ms": 45099,
+  "verification_attempts": 1,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "completed_verified",
+  "experiment": "repair_loop",
+  "tier": "real_model",
+  "metrics": {
+    "success": true,
+    "resolved": true,
+    "turns": 5,
+    "tool_calls": 4,
+    "tokens": 7698,
+    "latency": 45099,
+    "verification_attempts": 1,
+    "repeated_failures": 0
+  },
+  "failure_kind": null,
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 87,
+    "tool_events": 4,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 0,
+    "stop_reason": "completed_verified"
+  }
+}

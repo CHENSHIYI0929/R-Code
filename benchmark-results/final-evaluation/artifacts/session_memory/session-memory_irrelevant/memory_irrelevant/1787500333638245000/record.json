@@ -1,0 +1,40 @@
+{
+  "case_id": "session-memory_irrelevant",
+  "profile": "memory_irrelevant",
+  "success": false,
+  "resolved": false,
+  "turns": 2,
+  "tool_calls": 0,
+  "tokens": 0,
+  "latency_ms": 59672,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "rate_limit_retry",
+  "experiment": "session_memory",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 2,
+    "tool_calls": 0,
+    "tokens": 0,
+    "latency": 59672,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "repeated_file_reads": 0,
+    "task_success": false,
+    "fact_recall": false,
+    "stale_injection": false
+  },
+  "failure_kind": "memory_missing",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 26,
+    "tool_events": 0,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 10,
+    "stop_reason": "rate_limit_retry"
+  }
+}

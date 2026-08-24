@@ -1,0 +1,40 @@
+{
+  "case_id": "session-memory_on",
+  "profile": "memory_on",
+  "success": true,
+  "resolved": true,
+  "turns": 4,
+  "tool_calls": 2,
+  "tokens": 5515,
+  "latency_ms": 17389,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "completed",
+  "experiment": "session_memory",
+  "tier": "real_model",
+  "metrics": {
+    "success": true,
+    "resolved": true,
+    "turns": 4,
+    "tool_calls": 2,
+    "tokens": 5515,
+    "latency": 17389,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "repeated_file_reads": 2,
+    "task_success": true,
+    "fact_recall": true,
+    "stale_injection": false
+  },
+  "failure_kind": null,
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 62,
+    "tool_events": 2,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 0,
+    "stop_reason": "completed"
+  }
+}

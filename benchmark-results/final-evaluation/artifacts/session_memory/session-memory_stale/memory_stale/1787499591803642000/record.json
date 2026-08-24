@@ -1,0 +1,40 @@
+{
+  "case_id": "session-memory_stale",
+  "profile": "memory_stale",
+  "success": false,
+  "resolved": false,
+  "turns": 3,
+  "tool_calls": 1,
+  "tokens": 1264,
+  "latency_ms": 55383,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "tool_use",
+  "experiment": "session_memory",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 3,
+    "tool_calls": 1,
+    "tokens": 1264,
+    "latency": 55383,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "repeated_file_reads": 1,
+    "task_success": false,
+    "fact_recall": false,
+    "stale_injection": false
+  },
+  "failure_kind": "memory_missing",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 36,
+    "tool_events": 1,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 6,
+    "stop_reason": "tool_use"
+  }
+}

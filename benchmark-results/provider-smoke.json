@@ -1,0 +1,142 @@
+{
+  "nonstream": {
+    "mode": "nonstream",
+    "error_type": "model_call_budget_exceeded",
+    "terminal_outcome": "tool_use",
+    "tool_calls": 4,
+    "events": 18,
+    "tool_steps": 4,
+    "wall_clock_ms": 36018,
+    "budgets": {
+      "max_model_calls": 4,
+      "max_tool_steps": 4,
+      "max_wall_clock_seconds": 90.0
+    },
+    "calls": [
+      {
+        "mode": "nonstream",
+        "finish_reason": "tool_calls",
+        "tool_calls": 1,
+        "chunks": 1,
+        "first_chunk_ms": 18437,
+        "last_chunk_ms": 18437,
+        "error_type": null,
+        "response_ids": [],
+        "accumulated_arguments": [
+          "{\"file_path\": \".\"}"
+        ],
+        "parse_error": null
+      },
+      {
+        "mode": "nonstream",
+        "finish_reason": "tool_calls",
+        "tool_calls": 1,
+        "chunks": 1,
+        "first_chunk_ms": 9433,
+        "last_chunk_ms": 9433,
+        "error_type": null,
+        "response_ids": [],
+        "accumulated_arguments": [
+          "{\"file_path\": \"test.py\"}"
+        ],
+        "parse_error": null
+      },
+      {
+        "mode": "nonstream",
+        "finish_reason": "tool_calls",
+        "tool_calls": 1,
+        "chunks": 1,
+        "first_chunk_ms": 3227,
+        "last_chunk_ms": 3227,
+        "error_type": null,
+        "response_ids": [],
+        "accumulated_arguments": [
+          "{\"file_path\": \"./test\"}"
+        ],
+        "parse_error": null
+      },
+      {
+        "mode": "nonstream",
+        "finish_reason": "tool_calls",
+        "tool_calls": 1,
+        "chunks": 1,
+        "first_chunk_ms": 4896,
+        "last_chunk_ms": 4896,
+        "error_type": null,
+        "response_ids": [],
+        "accumulated_arguments": [
+          "{\"file_path\": \"list_files.py\", \"content\": \"import os\\n\\nfiles = os.listdir('.')\\nfor file in files:\\n    print(file)\"}"
+        ],
+        "parse_error": null
+      },
+      {
+        "mode": "nonstream",
+        "finish_reason": null,
+        "tool_calls": 0,
+        "chunks": 0,
+        "first_chunk_ms": null,
+        "last_chunk_ms": null,
+        "error_type": "model_call_budget_exceeded",
+        "response_ids": [],
+        "accumulated_arguments": [],
+        "parse_error": null
+      }
+    ]
+  },
+  "stream": {
+    "mode": "stream",
+    "error_type": "provider_timeout",
+    "terminal_outcome": "tool_use",
+    "tool_calls": 2,
+    "events": 76,
+    "tool_steps": 2,
+    "wall_clock_ms": 40989,
+    "budgets": {
+      "max_model_calls": 4,
+      "max_tool_steps": 4,
+      "max_wall_clock_seconds": 90.0
+    },
+    "calls": [
+      {
+        "mode": "stream",
+        "finish_reason": "tool_calls",
+        "tool_calls": 1,
+        "chunks": 44,
+        "first_chunk_ms": 4750,
+        "last_chunk_ms": 7519,
+        "error_type": null,
+        "response_ids": [],
+        "accumulated_arguments": [
+          "{\"file_path\": \"test.ts\"}"
+        ],
+        "parse_error": null
+      },
+      {
+        "mode": "stream",
+        "finish_reason": "tool_calls",
+        "tool_calls": 1,
+        "chunks": 97,
+        "first_chunk_ms": 1978,
+        "last_chunk_ms": 8455,
+        "error_type": null,
+        "response_ids": [],
+        "accumulated_arguments": [
+          "{\"file_path\": \"tests/test.ts\"}"
+        ],
+        "parse_error": null
+      },
+      {
+        "mode": "stream",
+        "finish_reason": null,
+        "tool_calls": 0,
+        "chunks": 3,
+        "first_chunk_ms": 24820,
+        "last_chunk_ms": 24820,
+        "error_type": "provider_timeout",
+        "response_ids": [],
+        "accumulated_arguments": [],
+        "parse_error": null
+      }
+    ]
+  }
+}

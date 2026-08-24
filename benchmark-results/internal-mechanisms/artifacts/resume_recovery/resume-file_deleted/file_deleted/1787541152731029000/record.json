@@ -1,0 +1,39 @@
+{
+  "case_id": "resume-file_deleted",
+  "profile": "file_deleted",
+  "success": false,
+  "resolved": false,
+  "turns": 4,
+  "tool_calls": 4,
+  "tokens": 6481,
+  "latency_ms": 38480,
+  "verification_attempts": 0,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "completed",
+  "experiment": "resume_recovery",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 4,
+    "tool_calls": 4,
+    "tokens": 6481,
+    "latency": 38480,
+    "verification_attempts": 0,
+    "repeated_failures": 0,
+    "resume_success": true,
+    "stale_reuse": true,
+    "recovery_steps": 3
+  },
+  "failure_kind": "missing_file",
+  "run_status": "completed",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 67,
+    "tool_events": 4,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 0,
+    "stop_reason": "completed"
+  }
+}

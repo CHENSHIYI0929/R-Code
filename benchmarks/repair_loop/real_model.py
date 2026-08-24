@@ -8,6 +8,7 @@ transcript implementations.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import shutil
@@ -20,7 +21,10 @@ from benchmarks.repair_loop.types import BenchmarkRun
 from core.runtime_state import RuntimeState
 from core.transitions import TransitionReason
 from infrastructure.config.env import ResolvedProviderConfig
-from infrastructure.providers.factory import create_model_client, resolve_config
+from infrastructure.providers.factory import resolve_config
+from infrastructure.providers.http import HttpxAsyncHttpTransport
+from benchmarks.repair_loop.provider_smoke import BoundedSmokeClient
+from services.model.types import ProviderError
 from services.context.message_store import MessageStore
 from services.context.transcript import JsonlTranscriptStore
 from services.model.client import ModelClient
@@ -36,11 +40,20 @@ class RealModelAdapter:
         *,
         artifact_root: Path | None = None,
         model_factory: Callable[[], ModelClient] | None = None,
+        max_model_calls: int = 12,
+        max_tool_steps: int = 12,
+        max_wall_clock_seconds: float = 180,
     ) -> None:
         self.env_path = Path(env_path)
         self.config: ResolvedProviderConfig = resolve_config(self.env_path)
         self.artifact_root = artifact_root
-        self._model_factory = model_factory or (lambda: create_model_client(self.env_path))
+        self.max_tool_steps = max_tool_steps
+        self.max_wall_clock_seconds = max_wall_clock_seconds
+        def default_model() -> ModelClient:
+            client = BoundedSmokeClient(self.config, async_transport=HttpxAsyncHttpTransport(provider_id=self.config.provider_id), mode="stream", call_timeout_seconds=25)
+            client.max_model_calls = max_model_calls
+            return client
+        self._model_factory = model_factory or default_model
 
     @property
     def model_label(self) -> str:
@@ -73,10 +86,12 @@ class RealModelAdapter:
             workspace, self._model_factory(), repair_profile=None if profile == "baseline" else profile
         )
         prompt = (
-            "Repair the failing test in this workspace. Inspect files before editing. "
-            "Use the available tools only, make the smallest correction, then finish."
+            "Repair the failing test in the known fixture layout: inspect src/sample.py "
+            "and tests/test_sample.py, then edit only src/sample.py. After the necessary "
+            "edit, respond with the final answer immediately; do not self-check by re-reading "
+            "because the runtime verifier decides correctness."
         )
-        events, elapsed = await _timed_collect(loop, prompt)
+        events, elapsed = await _timed_collect(loop, prompt, max_tool_steps=self.max_tool_steps, max_wall_clock_seconds=self.max_wall_clock_seconds)
         verified = state.last_transition == TransitionReason.COMPLETED_VERIFIED
         resolved = "return 200" in (workspace / "src" / "sample.py").read_text(encoding="utf-8")
         outcome = state.metadata.get("last_verification")
@@ -94,8 +109,9 @@ class RealModelAdapter:
         results = [message for message in store.current_messages() if message.get("role") == "tool_result"]
         denied = bool(results and results[-1].get("is_error"))
         expected_denial = not case.id.endswith("tool")
-        ok = bool(results) and denied == expected_denial
-        failure = None if ok else ("policy_denied" if expected_denial else "runtime_error")
+        benchmark_error = state.metadata.get("benchmark_error")
+        ok = bool(results) and denied == expected_denial and benchmark_error is None
+        failure = None if ok else (benchmark_error if isinstance(benchmark_error, str) else ("policy_denied" if expected_denial else "runtime_error"))
         return _record(case, profile, state, store, trace, errors, events, elapsed, success=ok, resolved=ok, failure_kind=failure, tier="real_model", extra={"runtime_correct": ok, "tool_correct": ok, "hook_correct": True, "budget_respected": True, "recovery_steps": 0, "security_boundary": denied == expected_denial})
 
     async def _context(self, case: CaseContract, profile: str, workspace: Path) -> BenchmarkRun:
@@ -164,9 +180,19 @@ class RealModelAdapter:
         (destination / "record.json").write_text(json.dumps(record.to_dict(), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
 
-async def _timed_collect(loop: Any, prompt: str) -> tuple[list[Any], int]:
+async def _timed_collect(loop: Any, prompt: str, *, max_tool_steps: int = 12, max_wall_clock_seconds: float = 180) -> tuple[list[Any], int]:
     started = time.perf_counter()
-    events = await _collect(loop, prompt)
+    events: list[Any] = []
+    try:
+        async with asyncio.timeout(max_wall_clock_seconds):
+            async for event in loop.stream(prompt):
+                events.append(event)
+                if sum(item.type == "tool_result" for item in events) > max_tool_steps:
+                    raise ProviderError("Benchmark tool budget exceeded.", error_type="tool_budget_exceeded")
+    except TimeoutError:
+        loop.state.metadata["benchmark_error"] = "wall_clock_budget_exceeded"
+    except ProviderError as exc:
+        loop.state.metadata["benchmark_error"] = {"timeout_error": "provider_timeout"}.get(exc.error_type or "", exc.error_type or "provider_error")
     return events, round((time.perf_counter() - started) * 1000)
 
 
@@ -176,6 +202,8 @@ def _final_text(events: list[Any]) -> str:
 
 
 def _repair_failure(state: RuntimeState, outcome: object, profile: str) -> str:
+    if isinstance(state.metadata.get("benchmark_error"), str):
+        return state.metadata["benchmark_error"]
     if profile == "baseline":
         return "verification_skipped"
     if state.last_transition == TransitionReason.REPAIR_EXHAUSTED:
