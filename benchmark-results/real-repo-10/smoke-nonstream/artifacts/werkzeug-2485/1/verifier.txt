@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/private/tmp/r-code-werkzeug-2485-z4p2p3n8/workspace/src/werkzeug/local.py", line 316, in __get__
+    obj = instance._get_current_object()  # type: ignore[misc]
+  File "/private/tmp/r-code-werkzeug-2485-z4p2p3n8/workspace/src/werkzeug/local.py", line 509, in _get_current_object
+    raise RuntimeError(unbound_message) from None
+RuntimeError: object is not bound

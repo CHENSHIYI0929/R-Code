@@ -1,0 +1,9 @@
+/dev/null: No [mypy] section in config file
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: error: No overload variant of "get" of "TypeConversionDict" matches argument types "str", "Callable[[str], int]"  [call-overload]
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: note: Possible overload variants:
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: note:     def get(self, key: str) -> str | None
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: note:     def get(self, key: str, default: str) -> str
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: note:     def [T] get(self, key: str, default: T) -> str | T
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: note:     def [T] get(self, key: str, type: type[T]) -> T | None
+/private/tmp/r-code-werkzeug-2988-tj8dosaq/evaluator-oracle.py:6: note:     def [T] get(self, key: str, default: T, type: type[T]) -> T
+Found 1 error in 1 file (checked 1 source file)

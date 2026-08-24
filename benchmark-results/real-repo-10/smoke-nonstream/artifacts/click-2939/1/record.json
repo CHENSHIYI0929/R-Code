@@ -1,0 +1,39 @@
+{
+  "case_id": "click-2939",
+  "profile": "full",
+  "success": false,
+  "resolved": false,
+  "turns": 8,
+  "tool_calls": 7,
+  "tokens": 39407,
+  "latency_ms": 75005,
+  "verification_attempts": 1,
+  "same_failure_repeats": 0,
+  "terminal_outcome": "tool_use",
+  "experiment": "real_repo",
+  "tier": "real_model",
+  "metrics": {
+    "success": false,
+    "resolved": false,
+    "turns": 8,
+    "tool_calls": 7,
+    "tokens": 39407,
+    "latency": 75005,
+    "verification_attempts": 1,
+    "repeated_failures": 0,
+    "task_success": false,
+    "verifier_returncode": 1,
+    "repetition": 1
+  },
+  "failure_kind": "wall_clock_budget_exceeded",
+  "run_status": "error",
+  "metadata": null,
+  "event_summary": {
+    "trace_events": 134,
+    "tool_events": 7,
+    "hook_events": 0,
+    "memory_events": 0,
+    "error_events": 2,
+    "stop_reason": "tool_use"
+  }
+}
