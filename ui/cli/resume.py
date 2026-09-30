@@ -14,6 +14,7 @@ from services.context.message_store import MessageStore
 from services.context.transcript import JsonlTranscriptStore, VALID_MESSAGE_ROLES
 from infrastructure.filesystem.onecode_paths import sessions_dir
 from services.tools.file_state import FileStateCache
+from services.compaction import SessionMemoryStore
 from ui.cli.types import CliRuntime
 from ui.cli.views.common import preview
 
@@ -133,6 +134,10 @@ def restore_runtime_from_target(runtime: CliRuntime, target: str) -> CliRuntime:
         message_store.current_messages(),
         message_store=message_store,
     )
+    # Validate source-linked session findings before the restored runtime can
+    # project them into a model snapshot. Invalid findings remain in canonical
+    # JSON for audit but are marked stale and excluded from injection.
+    SessionMemoryStore(transcript_store.session_dir).validated_for_injection(runtime.workspace)
     return runtime.with_session(
         state=state,
         message_store=message_store,

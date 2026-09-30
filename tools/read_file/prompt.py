@@ -1,9 +1,6 @@
 """Prompt text for the read_file tool."""
 
-PROMPT = """Purpose:
-Read a UTF-8 text file and return line-numbered content from a requested line range.
-
-Use when:
+PROMPT = """Use when:
 - You need to inspect source, configuration, documentation, or other text files before reasoning about them.
 - You need exact surrounding lines for a planned edit.
 
@@ -18,7 +15,7 @@ Rules:
 
 Returns:
 - Line-numbered text beginning at the requested offset.
-- Metadata includes the normalized path, applied offset, and returned line count.
+- Metadata includes the normalized path, applied offset, returned line count, and full-file SHA-256 fingerprint.
 
 If it fails:
 - If the path is missing or is a directory, use `glob` or `grep` to locate the intended file.

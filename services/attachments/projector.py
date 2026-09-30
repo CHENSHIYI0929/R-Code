@@ -60,6 +60,8 @@ def _project_attachment_message(message: dict[str, Any]) -> tuple[dict[str, Any]
         return (_notice(f"[hook result]\n{attachment.get('content', '')}"),)
     if attachment_type == "repair_feedback":
         return (_project_repair_feedback(attachment),)
+    if attachment_type == "navigation_hint":
+        return (_project_navigation_hint(attachment),)
     if attachment_type == "attachment_error":
         return (_notice(_error_content(attachment)),)
     return (_notice(f"Unsupported attachment type: {attachment_type}"),)
@@ -192,6 +194,7 @@ def _project_skill(attachment: dict[str, Any]) -> dict[str, Any]:
 def _project_repair_feedback(attachment: dict[str, Any]) -> dict[str, Any]:
     evidence = attachment.get("evidence") if isinstance(attachment.get("evidence"), list) else []
     snippets = attachment.get("snippets") if isinstance(attachment.get("snippets"), list) else []
+    hunks = attachment.get("current_diff") if isinstance(attachment.get("current_diff"), list) else []
     evidence_text = "\n".join(
         f"- {item.get('file_path') or 'unknown'}:{item.get('line') or '?'} {item.get('exception_type') or item.get('category')}: {item.get('message', '')}"
         for item in evidence[:8] if isinstance(item, dict)
@@ -200,14 +203,35 @@ def _project_repair_feedback(attachment: dict[str, Any]) -> dict[str, Any]:
         f"[{item.get('path')}:{item.get('start_line')}-{item.get('end_line')} — {item.get('reason')}]\n{item.get('content', '')}"
         for item in snippets[:8] if isinstance(item, dict)
     ) or "(No additional repository snippets were found.)"
+    hunk_text = "\n".join(
+        f"- {item.get('path')}:{item.get('start_line')}-{item.get('end_line')} {item.get('symbol') or ''}"
+        for item in hunks[:12] if isinstance(item, dict)
+    ) or "- No current diff hunks were available."
     return _notice(
         "[repair feedback]\n"
         f"Verification attempt: {attachment.get('attempt', '?')}\n"
         f"Full verification artifact: {attachment.get('artifact_path', '')}\n"
         f"Changed files: {', '.join(str(x) for x in attachment.get('changed_files', []))}\n\n"
+        "Current diff locations (localization only):\n" + hunk_text + "\n\n"
         "Failure evidence:\n" + evidence_text + "\n\n"
         "Retrieved repository context:\n" + snippet_text + "\n\n"
         "Repair the diagnosed issue, then run verification before finishing."
+    )
+
+
+def _project_navigation_hint(attachment: dict[str, Any]) -> dict[str, Any]:
+    files = attachment.get("candidate_files") if isinstance(attachment.get("candidate_files"), list) else []
+    symbols = attachment.get("candidate_symbols") if isinstance(attachment.get("candidate_symbols"), list) else []
+    snippets = attachment.get("snippets") if isinstance(attachment.get("snippets"), list) else []
+    file_text = "\n".join(f"- {item.get('path')} (score={item.get('score')}, signals={', '.join(item.get('signals', []))})" for item in files[:5] if isinstance(item, dict)) or "- No confident file candidate."
+    symbol_text = "\n".join(f"- {item.get('path')}::{item.get('symbol')} [{item.get('kind')}]" for item in symbols[:8] if isinstance(item, dict)) or "- No confident symbol candidate."
+    snippet_text = "\n\n".join(f"[{item.get('path')}:{item.get('start_line')}-{item.get('end_line')}]\n{item.get('content', '')}" for item in snippets[:3] if isinstance(item, dict))
+    return _notice(
+        "[first-pass localization hint]\n"
+        f"Navigation stage: {attachment.get('navigation_stage', 'explore')}\n"
+        "These candidates were ranked from the issue text and repository structure. They are navigation hints, not a prescribed patch; verify the evidence before editing.\n\n"
+        f"Candidate files:\n{file_text}\n\nCandidate symbols:\n{symbol_text}"
+        + (f"\n\nBounded excerpts:\n{snippet_text}" if snippet_text else "")
     )
 
 

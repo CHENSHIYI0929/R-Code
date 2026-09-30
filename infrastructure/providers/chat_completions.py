@@ -218,6 +218,7 @@ class OpenAICompatibleChatCompletionsClient:
             message,
             provider_id=self.config.provider_id,
             error_type="invalid_response",
+            retryable=True,
         )
 
     def _invalid_tool_arguments(self, message: str) -> ProviderError:

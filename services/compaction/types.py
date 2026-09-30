@@ -23,6 +23,9 @@ class CompactionConfig:
     tool_result_budget_chars: int = 200_000
     tool_result_preview_chars: int = 4_000
     microcompact_keep_recent: int = 5
+    age_compact_after_model_calls: int = 3
+    age_compact_min_chars: int = 600
+    age_compact_summary_chars: int = 600
     snip_max_messages: int = 80
     session_memory_min_tokens: int = 10_000
     session_memory_max_tokens: int = 40_000

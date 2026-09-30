@@ -625,6 +625,7 @@ class ContextCompactionService:
             keep = set(tool_result_indexes[-self.config.microcompact_keep_recent :])
         compacted: list[dict[str, Any]] = []
         compacted_count = 0
+        assistant_calls_after = _assistant_calls_after(messages)
         for index, message in enumerate(messages):
             next_message = deepcopy(message)
             if index in keep or next_message.get("role") != "tool_result":
@@ -635,26 +636,63 @@ class ContextCompactionService:
                 compacted.append(next_message)
                 continue
             content = next_message.get("content")
-            if isinstance(content, str) and content:
-                metadata.update(
-                    {
-                        "microcompacted": True,
-                        "original_size_chars": len(content),
-                    }
-                )
-                next_message["content"] = MICROCOMPACT_PLACEHOLDER
-                next_message["metadata"] = metadata
-                compacted_count += 1
+            old_enough = assistant_calls_after[index] >= self.config.age_compact_after_model_calls
+            has_summary_evidence = isinstance(content, str) and len(content.strip()) >= self.config.age_compact_min_chars
+            if old_enough and has_summary_evidence and self._result_store is not None:
+                summary = _aged_result_summary(content, self.config.age_compact_summary_chars)
+                if summary:
+                    ref = self._result_store.persist_tool_result(
+                        tool_call_id=str(next_message.get("tool_call_id", "")),
+                        tool_name=str(next_message.get("tool_name", "")),
+                        content=content,
+                    )
+                    next_message["content"] = self._result_store.format_model_reference(ref, preview=summary)
+                    metadata.update(
+                        {
+                            "microcompacted": True,
+                            "age_compacted": True,
+                            "model_calls_since_result": assistant_calls_after[index],
+                            "summary_chars": len(summary),
+                            **self._result_store.stored_result_metadata(
+                                ref,
+                                max_result_size_chars=self.config.tool_result_budget_chars,
+                            ),
+                        }
+                    )
+                    next_message["metadata"] = metadata
+                    compacted_count += 1
             compacted.append(next_message)
 
         self._trace_recorder.event(
             "compact_micro",
-            {
-                "microcompacted_count": compacted_count,
-                "keep_recent": self.config.microcompact_keep_recent,
-            },
+            {"microcompacted_count": compacted_count, "age_compacted_count": compacted_count, "keep_recent": self.config.microcompact_keep_recent, "age_after_model_calls": self.config.age_compact_after_model_calls},
         )
         return tuple(compacted)
+
+
+def _assistant_calls_after(messages: tuple[dict[str, Any], ...]) -> tuple[int, ...]:
+    ages = [0] * len(messages)
+    count = 0
+    for index in range(len(messages) - 1, -1, -1):
+        ages[index] = count
+        if messages[index].get("role") == "assistant":
+            count += 1
+    return tuple(ages)
+
+
+def _aged_result_summary(content: str, max_chars: int) -> str:
+    text = content.strip()
+    if not text or max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    head_chars = max(1, max_chars * 2 // 3)
+    tail_chars = max(1, max_chars - head_chars)
+    return (
+        text[:head_chars].rstrip()
+        + "\n[... old tool result summarized; full result stored ...]\n"
+        + text[-tail_chars:].lstrip()
+    )
 
 
 def _stored_result_refs(messages: tuple[dict[str, Any], ...]) -> tuple[str, ...]:

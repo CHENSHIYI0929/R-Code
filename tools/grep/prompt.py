@@ -1,9 +1,6 @@
 """Prompt section for the grep tool."""
 
-PROMPT = """Purpose:
-Search file contents with ripgrep-compatible regular expressions.
-
-Use when:
+PROMPT = """Use when:
 - You need to find files containing text, symbols, imports, or error messages.
 - You need matching lines, per-file counts, or a list of matching files.
 

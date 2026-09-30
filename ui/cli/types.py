@@ -6,13 +6,11 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from core.context_engine import ContextEngine
 from core.loop import AgentLoop
 from core.runtime_state import RuntimeState
 from infrastructure.providers.factory import create_model_client
 from infrastructure.filesystem.onecode_paths import sessions_dir
-from prompts.assembler import DynamicPromptAssembler
-from services.attachments import AttachmentCollector, AttachmentContextPreparer
+from services.attachments import AttachmentCollector
 from services.background_tasks import BackgroundTaskManager
 from services.context.message_store import MessageStore
 from services.context.current_model_context import CurrentModelContext
@@ -31,7 +29,6 @@ from services.memory import (
     LongTermMemoryExtractionService,
     LongTermMemoryPromptProvider,
     LongTermMemoryStore,
-    RelevantMemoryContextPreparer,
     RelevantMemorySelector,
 )
 from services.permissions import (
@@ -49,6 +46,7 @@ from services.tools.executor import RegistryToolExecutor, ToolExecutor
 from services.tools.file_state import FileStateCache
 from services.tools.registry import ToolRegistry
 from services.tools.types import ToolDescriptor
+from services.context.production import build_production_context_engine
 from tools.agent import descriptor as agent_descriptor
 from ui.cli.session_memory import BackgroundSessionMemoryExtractor
 from utils.toolResultStorage import ToolResultStorage
@@ -177,26 +175,16 @@ class CliRuntime:
                 session_memory_store,
                 trace_recorder=self.trace_recorder,
             )
-        context_engine = ContextEngine(
-            message_store,
-            prompt_assembler=DynamicPromptAssembler(
-                self.workspace,
-                tool_registry=self.registry,
-                skill_provider=self.skill_provider,
-                instruction_memory_loader=self.instruction_memory_loader,
-                long_term_memory_provider=self.long_term_memory_provider,
-            ),
-            tool_schema_provider=self.registry,
-            context_preparer=AttachmentContextPreparer(
-                RelevantMemoryContextPreparer(
-                    self.long_term_memory_store,
-                    self.memory_selector,
-                    inner=self.compaction_service,
-                )
-                if self.long_term_memory_store is not None
-                and self.memory_selector is not None
-                else self.compaction_service
-            ),
+        context_engine = build_production_context_engine(
+            workspace=self.workspace,
+            message_store=message_store,
+            registry=self.registry,
+            compaction_service=self.compaction_service,
+            skill_provider=self.skill_provider,
+            instruction_memory_loader=self.instruction_memory_loader,
+            long_term_memory_provider=self.long_term_memory_provider,
+            long_term_memory_store=self.long_term_memory_store,
+            memory_selector=self.memory_selector,
         )
         loop = AgentLoop(
             state=state,
@@ -313,25 +301,16 @@ class CliRuntime:
                 session_memory_extractor=session_memory_extractor
             )
 
-        context_engine = ContextEngine(
-            self.message_store,
-            prompt_assembler=DynamicPromptAssembler(
-                self.workspace,
-                tool_registry=registry,
-                skill_provider=self.skill_provider,
-                instruction_memory_loader=self.instruction_memory_loader,
-                long_term_memory_provider=self.long_term_memory_provider,
-            ),
-            tool_schema_provider=registry,
-            context_preparer=AttachmentContextPreparer(
-                RelevantMemoryContextPreparer(
-                    self.long_term_memory_store,
-                    memory_selector,
-                    inner=self.compaction_service,
-                )
-                if self.long_term_memory_store is not None
-                else self.compaction_service
-            ),
+        context_engine = build_production_context_engine(
+            workspace=self.workspace,
+            message_store=self.message_store,
+            registry=registry,
+            compaction_service=self.compaction_service,
+            skill_provider=self.skill_provider,
+            instruction_memory_loader=self.instruction_memory_loader,
+            long_term_memory_provider=self.long_term_memory_provider,
+            long_term_memory_store=self.long_term_memory_store,
+            memory_selector=memory_selector,
         )
 
         result_store = ToolResultStorage(self.message_store.transcript_store.session_dir)

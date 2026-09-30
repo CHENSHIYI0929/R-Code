@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import difflib
+import hashlib
 from pathlib import Path
 
-from utils.text_io import read_text_file
+from utils.text_io import decode_text, read_text_file
 
 
 MAX_DIFF_CHARS = 4_000
@@ -20,6 +21,7 @@ class FileState:
     offset: int | None = None
     limit: int | None = None
     partial: bool = False
+    sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,8 @@ class FileStateCache:
             return None
         try:
             stat = resolved.stat()
-            content = read_text_file(resolved)
+            data = resolved.read_bytes()
+            content = decode_text(data)
         except OSError:
             return None
         state = FileState(
@@ -67,6 +70,7 @@ class FileStateCache:
             offset=offset,
             limit=limit,
             partial=partial,
+            sha256=hashlib.sha256(data).hexdigest(),
         )
         self.set(state)
         return state

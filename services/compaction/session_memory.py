@@ -207,10 +207,25 @@ class SessionMemoryStore:
                 if summary is not None:
                     summaries[path] = summary
                     recent = [path, *[item for item in recent if item != path]][:20]
+                    findings = list(state.task_state.get("confirmed_findings", []))
+                    finding = _finding_from_file_summary(summary)
+                    findings = [finding, *[item for item in findings if not (isinstance(item, dict) and item.get("path") == path)]][:12]
+                    task_state = dict(state.task_state)
+                    task_state["confirmed_findings"] = findings
+                    state = replace(state, task_state=task_state)
             elif tool_name in {"edit_file", "write_file", "filewrite"} and not is_error and isinstance(path, str):
                 if path in summaries:
                     old = summaries[path]
                     summaries[path] = replace(old, stale=True, stale_reason="written_after_summary")
+                findings = []
+                for item in state.task_state.get("confirmed_findings", []):
+                    if isinstance(item, dict) and item.get("path") == path:
+                        findings.append({**item, "stale": True, "freshness": "stale", "stale_reason": "written_after_finding"})
+                    else:
+                        findings.append(item)
+                task_state = dict(state.task_state)
+                task_state["confirmed_findings"] = findings
+                state = replace(state, task_state=task_state)
             elif tool_name == "bash" and is_error and isinstance(metadata, dict):
                 errors.append({"tool": "bash", "command": tool_input.get("command", ""), "exit_code": metadata.get("exit_code"), "error": metadata.get("error", "command_failed")})
                 errors = errors[-20:]
@@ -274,6 +289,9 @@ class SessionMemoryStore:
             changed = changed or next_item != item
             summaries.append(next_item)
         state = replace(memory.state, file_summaries=tuple(summaries))
+        task_state, findings_changed = _validated_confirmed_findings(state.task_state, workspace=workspace)
+        state = replace(state, task_state=task_state)
+        changed = changed or findings_changed
         if changed:
             memory = self.write_state(state, metadata=memory)
         return replace(memory, content=_render_injection_memory(state, query=query))
@@ -937,6 +955,41 @@ def _observe_file(path: Path, tool_input: dict[str, Any], content: str) -> FileS
     line_count = max(0, content.count("\n") + (1 if content else 0))
     preview = " ".join(content.split())[:500] or "File observed."
     return FileSummary(str(resolved), FileFingerprint(str(resolved), stat.st_mtime_ns, stat.st_size, hashlib.sha256(raw).hexdigest()), f"Read from line {offset}; {line_count} displayed line(s). {preview}", (int(offset) if isinstance(offset, int) else 1, line_count))
+
+
+def _finding_from_file_summary(summary: FileSummary) -> dict[str, Any]:
+    """Create one bounded, auditable finding instead of injecting full summaries."""
+
+    return {
+        "value": summary.summary[:500],
+        "source": "tool",
+        "priority": FACT_PRIORITY["tool"],
+        "observed_at": _now(),
+        "source_refs": [summary.path],
+        "path": summary.path,
+        "fingerprint": summary.fingerprint.__dict__,
+        "freshness": "fresh",
+        "stale": False,
+    }
+
+
+def _validated_confirmed_findings(task_state: dict[str, Any], *, workspace: Path | str | None) -> tuple[dict[str, Any], bool]:
+    task = dict(task_state)
+    validated: list[Any] = []
+    changed = False
+    for item in task.get("confirmed_findings", [])[:12]:
+        if not isinstance(item, dict) or not item.get("path") or not item.get("fingerprint"):
+            validated.append(item)
+            continue
+        result = validate_memory_item(item, workspace=workspace)
+        if result.injectable:
+            next_item = {**item, "stale": False, "freshness": "fresh", "stale_reason": ""}
+        else:
+            next_item = {**item, "stale": True, "freshness": "stale", "stale_reason": result.reason}
+        changed = changed or next_item != item
+        validated.append(next_item)
+    task["confirmed_findings"] = validated
+    return task, changed
 
 
 def _atomic_write(path: Path, text: str) -> None:

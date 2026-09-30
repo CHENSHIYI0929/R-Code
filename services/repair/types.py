@@ -51,9 +51,45 @@ class RepositorySnippet:
 
 
 @dataclass(frozen=True)
+class FileCandidate:
+    path: str
+    score: float
+    signals: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SymbolCandidate:
+    path: str
+    symbol: str
+    kind: str
+    start_line: int
+    end_line: int
+    score: float
+    signals: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+    files: tuple[FileCandidate, ...] = ()
+    symbols: tuple[SymbolCandidate, ...] = ()
+    snippets: tuple[RepositorySnippet, ...] = ()
+
+
+@dataclass(frozen=True)
+class DiffHunk:
+    path: str
+    start_line: int
+    end_line: int
+    symbol: str | None = None
+
+
+@dataclass(frozen=True)
 class RepairContextBundle:
     attempt: int
     report: VerificationReport
     evidence: tuple[FailureEvidence, ...]
     snippets: tuple[RepositorySnippet, ...]
     changed_files: tuple[str, ...]
+    current_diff: tuple[DiffHunk, ...] = ()
+    candidate_files: tuple[FileCandidate, ...] = ()
+    candidate_symbols: tuple[SymbolCandidate, ...] = ()

@@ -45,9 +45,14 @@ RATE_LIMIT_RETRY_TRANSITION = "rate_limit_retry"
 
 @dataclass(frozen=True)
 class RetryPolicy:
-    max_retries: int = 10
+    # Keep transient outages bounded. A provider timeout is already charged
+    # against the caller's wall-clock budget, so ten more attempts can turn a
+    # recoverable network blip into a silent budget failure.
+    max_retries: int = 3
+    max_network_retries: int = 2
+    max_invalid_response_retries: int = 2
     base_delay_seconds: float = 0.5
-    max_delay_seconds: float = 32.0
+    max_delay_seconds: float = 4.0
     jitter_ratio: float = 0.25
 
 
@@ -117,13 +122,14 @@ class ModelRetryRunner:
                     forwarded_any = True
                     yield event
             except ProviderError as exc:
-                if not self._should_retry(exc) or attempt > self.policy.max_retries:
-                    if attempt > self.policy.max_retries and self._should_retry(exc):
+                max_retries = self._max_retries(exc)
+                if not self._should_retry(exc) or attempt > max_retries:
+                    if attempt > max_retries and self._should_retry(exc):
                         exhausted = RetryExhaustedError(
                             "Provider retry attempts exhausted.",
                             metadata={
                                 "attempt": attempt,
-                                "max_retries": self.policy.max_retries,
+                                "max_retries": max_retries,
                                 "error_type": exc.error_type,
                                 "provider_id": exc.provider_id,
                                 "partial_output_visible": forwarded_any,
@@ -141,7 +147,7 @@ class ModelRetryRunner:
                         raise exhausted from exc
                     raise
 
-                decision = self._decision(attempt, exc)
+                decision = self._decision(attempt, exc, max_retries=max_retries)
                 self.trace_recorder.event(
                     "model_retry",
                     {
@@ -178,7 +184,14 @@ class ModelRetryRunner:
     def _should_retry(self, error: ProviderError) -> bool:
         return error.retryable is True and error.error_type != "context_limit_exceeded"
 
-    def _decision(self, attempt: int, error: ProviderError) -> RetryDecision:
+    def _max_retries(self, error: ProviderError) -> int:
+        if error.error_type == "network_error":
+            return min(self.policy.max_retries, self.policy.max_network_retries)
+        if error.error_type == "invalid_response":
+            return min(self.policy.max_retries, self.policy.max_invalid_response_retries)
+        return self.policy.max_retries
+
+    def _decision(self, attempt: int, error: ProviderError, *, max_retries: int) -> RetryDecision:
         delay = retry_delay_seconds(
             attempt,
             retry_after_seconds=error.retry_after_seconds,
@@ -187,7 +200,7 @@ class ModelRetryRunner:
         )
         return RetryDecision(
             attempt=attempt,
-            max_retries=self.policy.max_retries,
+            max_retries=max_retries,
             delay_seconds=delay,
             transition=RATE_LIMIT_RETRY_TRANSITION,
             reason=error.error_type or "provider_error",

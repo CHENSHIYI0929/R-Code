@@ -12,15 +12,12 @@ from typing import Literal, Sequence
 
 from services.permissions import PermissionPrompter
 
-from core.context_engine import ContextEngine
 from core.loop import AgentLoop
 from core.runtime_state import RuntimeState
 from infrastructure.providers.factory import create_model_client
 from infrastructure.filesystem.onecode_paths import sessions_dir
-from prompts.assembler import DynamicPromptAssembler
 from services.attachments import (
     AttachmentCollector,
-    AttachmentContextPreparer,
     AttachmentFileReader,
 )
 from services.background_tasks import (
@@ -44,7 +41,6 @@ from services.memory import (
     LongTermMemoryExtractionService,
     LongTermMemoryPromptProvider,
     LongTermMemoryStore,
-    RelevantMemoryContextPreparer,
     RelevantMemorySelector,
 )
 from services.model.types import ProviderError
@@ -83,6 +79,7 @@ from services.skills import LoaderSkillCatalogProvider
 from services.subagents.runner import SubagentRunner
 from services.tasks import TaskStore
 from services.tools.executor import RegistryToolExecutor
+from services.context.production import build_production_context_engine
 from services.tools.file_state import FileStateCache
 from services.tools.registry import ToolRegistry
 from tools.agent import descriptor as agent_descriptor
@@ -95,6 +92,7 @@ from tools.exit_plan_mode import descriptor as exit_plan_mode_descriptor
 from tools.glob import descriptor as glob_descriptor
 from tools.grep import descriptor as grep_descriptor
 from tools.read_file import descriptor as read_file_descriptor
+from tools.symbol_lookup import descriptor as symbol_lookup_descriptor
 from tools.skill import descriptor as skill_descriptor
 from tools.task_create import descriptor as task_create_descriptor
 from tools.task_get import descriptor as task_get_descriptor
@@ -192,6 +190,7 @@ def production_coding_tool_descriptors():
     """
     return (
         read_file_descriptor(),
+        symbol_lookup_descriptor(),
         edit_file_descriptor(),
         write_file_descriptor(),
         glob_descriptor(),
@@ -309,13 +308,6 @@ def build_runtime(
         trace_recorder=trace_recorder,
     )
     long_term_memory_provider = LongTermMemoryPromptProvider(long_term_memory_store)
-    prompt_assembler = DynamicPromptAssembler(
-        workspace,
-        tool_registry=registry,
-        skill_provider=skill_provider,
-        instruction_memory_loader=instruction_memory_loader,
-        long_term_memory_provider=long_term_memory_provider,
-    )
     compaction_service = ContextCompactionService(
         message_store=message_store,
         session_memory_store=session_memory_store,
@@ -345,17 +337,16 @@ def build_runtime(
         model_client=model_client,
         trace_recorder=trace_recorder,
     )
-    context_engine = ContextEngine(
-        message_store,
-        prompt_assembler=prompt_assembler,
-        tool_schema_provider=registry,
-        context_preparer=AttachmentContextPreparer(
-            RelevantMemoryContextPreparer(
-                long_term_memory_store,
-                memory_selector,
-                inner=compaction_service,
-            )
-        ),
+    context_engine = build_production_context_engine(
+        workspace=workspace,
+        message_store=message_store,
+        registry=registry,
+        compaction_service=compaction_service,
+        skill_provider=skill_provider,
+        instruction_memory_loader=instruction_memory_loader,
+        long_term_memory_provider=long_term_memory_provider,
+        long_term_memory_store=long_term_memory_store,
+        memory_selector=memory_selector,
     )
     subagent_runner = SubagentRunner(
         workspace=workspace,

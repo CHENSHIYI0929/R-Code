@@ -1,15 +1,11 @@
 """Prompt text for the write_file tool."""
 
-PROMPT = """Purpose:
-Create a new UTF-8 text file or replace the complete contents of an existing text file.
-
-Use when:
+PROMPT = """Use when:
 - You are creating a new file.
 - You intentionally need to rewrite an entire existing file.
 
 Prefer instead:
 - Use `edit_file` for localized changes to existing files.
-- Use `read_file` first when you need the current contents.
 
 Rules:
 - Existing files must be fully read in this session before they can be overwritten.

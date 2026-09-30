@@ -42,10 +42,7 @@ def behavior_rules_section(context: PromptRuntimeContext) -> PromptSection:
     body = "\n".join(
         [
             "- Use repository facts and tool results as the basis for code changes.",
-            "- Read relevant files before editing them.",
-            "- Use available tools when you need to inspect files or search the workspace.",
             "- Respect sandbox and guard decisions. A denied capability is unavailable.",
-            "- Do not claim that you ran commands, read files, or changed code unless that happened.",
             "- Keep runtime boundaries clear: main loop orchestration, tools for actions, prompts for guidance, guard for safety, and hooks for lifecycle extension.",
             "- Do not rely on model promises for safety; executable tool and guard paths define what is allowed.",
         ]
@@ -319,7 +316,6 @@ def default_sections(context: PromptRuntimeContext) -> tuple[PromptSection, ...]
         instruction_memory_section(context),
         long_term_memory_section(context),
         workspace_state_section(context),
-        available_tools_section(context),
         task_guidance_section(context),
         available_skills_section(context),
         mcp_server_instructions_section(context),

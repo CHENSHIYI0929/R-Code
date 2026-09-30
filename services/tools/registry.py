@@ -77,6 +77,7 @@ class ToolRegistry:
         hidden.update(_metadata_tool_names(state, "disabled_tools"))
         hidden.update(_metadata_tool_names(state, "denied_tools"))
         hidden.update(_metadata_tool_names(state, "hidden_tools"))
+        hidden.update(_metadata_tool_names(state, "phase_hidden_tools"))
         return hidden
 
 

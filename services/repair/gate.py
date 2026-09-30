@@ -11,6 +11,7 @@ from core.runtime_state import RuntimeState
 from services.attachments.types import AttachmentMessage
 from services.observability import TraceRecorder
 from services.repair.fingerprint import fingerprint_failure
+from services.repair.current_diff import associate_evidence_symbols, current_diff_hunks
 from services.repair.parser import FailureParser
 from services.repair.policy import RepairLoopPolicy
 from services.repair.retriever import RepositoryRetriever
@@ -31,7 +32,7 @@ class FinishDecision:
 class RepairLoopGate:
     """Runs local checks and turns failures into bounded repair context."""
 
-    def __init__(self, workspace: Path, *, result_store: ToolResultStorage, trace_recorder: TraceRecorder | None = None, max_attempts: int = 3, timeout_seconds: float = 120.0, executor: VerificationExecutor | None = None, policy: RepairLoopPolicy | None = None) -> None:
+    def __init__(self, workspace: Path, *, result_store: ToolResultStorage, trace_recorder: TraceRecorder | None = None, max_attempts: int = 3, timeout_seconds: float = 120.0, executor: VerificationExecutor | None = None, policy: RepairLoopPolicy | None = None, verify_without_changes: bool = False) -> None:
         self.workspace = workspace.resolve()
         self.result_store = result_store
         self.trace_recorder = trace_recorder or TraceRecorder.noop()
@@ -44,6 +45,8 @@ class RepairLoopGate:
             timeout_seconds=timeout_seconds,
         )
         self.policy = policy or RepairLoopPolicy()
+        self.verify_without_changes = verify_without_changes
+        self.history: list[VerificationReport] = []
         self.parser = FailureParser()
         self.retriever = RepositoryRetriever(self.workspace)
 
@@ -53,14 +56,15 @@ class RepairLoopGate:
 
     async def evaluate(self, state: RuntimeState, *, final_text: str, assistant_message: dict[str, Any] | None) -> FinishDecision:
         del final_text, assistant_message
-        changed_files = tuple(str(item) for item in state.metadata.get("files_changed", ()) if isinstance(item, str))
-        if not changed_files:
+        changed_files = tuple(sorted(str(item) for item in state.metadata.get("files_changed", ()) if isinstance(item, str)))
+        if not changed_files and not self.verify_without_changes:
             return FinishDecision("pass", "No repository files changed; verification gate skipped.")
         attempt = int(state.metadata.get("repair_attempts", 0)) + 1
         commands = self._commands()
         if not commands:
             return FinishDecision("blocked", "Verification is required after edits, but no verification command is configured.")
         report = await self.executor.execute(commands, attempt=attempt)
+        self.history.append(report)
         state.metadata["last_verification"] = {"status": report.status, "outcome": report.outcome, "fingerprint": report.fingerprint, "artifact_path": report.artifact_path}
         if report.status == "passed":
             state.metadata["repair_attempts"] = attempt
@@ -80,8 +84,20 @@ class RepairLoopGate:
         if attempt >= self.max_attempts or repeats >= 2:
             self.trace_recorder.event("repair_exhausted", {"attempt": attempt, "same_failure_repeats": repeats})
             return FinishDecision("exhausted", "Verification failed repeatedly; repair budget exhausted.", report=report)
-        snippets = self.retriever.retrieve(evidence, changed_files) if self.policy.enable_repository_retrieval else ()
-        bundle = RepairContextBundle(attempt, report, evidence, snippets, changed_files)
+        hunks = current_diff_hunks(self.workspace, state.metadata.get("file_change_baselines", {}), changed_files) if self.policy.enable_repository_retrieval else ()
+        evidence = associate_evidence_symbols(self.workspace, evidence) if self.policy.enable_repository_retrieval else evidence
+        retrieval = self.retriever.retrieve_ranked(evidence, changed_files, hunks) if self.policy.enable_repository_retrieval else None
+        snippets = retrieval.snippets if retrieval is not None else ()
+        bundle = RepairContextBundle(
+            attempt,
+            report,
+            evidence,
+            snippets,
+            changed_files,
+            hunks,
+            retrieval.files if retrieval is not None else (),
+            retrieval.symbols if retrieval is not None else (),
+        )
         attachment = AttachmentMessage(self._attachment_payload(bundle), source="repair_loop").to_message()
         self.trace_recorder.event("verification_failed", {"attempt": attempt, "evidence_count": len(evidence), "snippet_count": len(snippets)})
         return FinishDecision("continue", "Verification failed; repair context added.", attachment=attachment, report=report)
@@ -99,4 +115,4 @@ class RepairLoopGate:
 
     @staticmethod
     def _attachment_payload(bundle: RepairContextBundle) -> dict[str, Any]:
-        return {"type": "repair_feedback", "attempt": bundle.attempt, "status": bundle.report.status, "artifact_path": bundle.report.artifact_path, "changed_files": list(bundle.changed_files), "evidence": [item.__dict__ for item in bundle.evidence], "snippets": [item.__dict__ for item in bundle.snippets], "output_preview": "\n".join(check.output for check in bundle.report.checks)[:4000]}
+        return {"type": "repair_feedback", "attempt": bundle.attempt, "status": bundle.report.status, "artifact_path": bundle.report.artifact_path, "changed_files": list(bundle.changed_files), "current_diff": [item.__dict__ for item in bundle.current_diff], "candidate_files": [item.__dict__ for item in bundle.candidate_files], "candidate_symbols": [item.__dict__ for item in bundle.candidate_symbols], "evidence": [item.__dict__ for item in bundle.evidence], "snippets": [item.__dict__ for item in bundle.snippets], "output_preview": "\n".join(check.output for check in bundle.report.checks)[:4000]}

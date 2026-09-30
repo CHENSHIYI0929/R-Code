@@ -46,6 +46,18 @@ def estimate_snapshot_tokens(snapshot: ContextSnapshot) -> int:
     )
 
 
+def estimate_text_tokens(text: str) -> int:
+    """Expose the shared conservative text estimate to diagnostics."""
+
+    return _estimate_text_tokens(text)
+
+
+def estimate_json_tokens(value: Any) -> int:
+    """Expose the shared conservative JSON estimate to diagnostics."""
+
+    return _estimate_json_field_tokens(value)
+
+
 def _estimate_content_tokens(content: Any) -> int:
     if content is None:
         return 0

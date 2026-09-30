@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 DEFAULT_MAX_TOOL_CONCURRENCY = 10
-FILE_STATE_TOOL_NAMES = {"read_file", "edit_file", "write_file", "filewrite"}
+FILE_STATE_TOOL_NAMES = {"read_file", "symbol_lookup", "edit_file", "write_file", "filewrite"}
 
 
 @dataclass(frozen=True)
@@ -1005,6 +1005,17 @@ class RegistryToolExecutor:
             state.metadata["files_read"] = files_read
         files_read.add(path)
         if result.tool_name in {"edit_file", "write_file", "filewrite"}:
+            # Keep the first observed version as the session's diff base. The
+            # cache itself advances after each successful write below.
+            baselines = state.metadata.setdefault("file_change_baselines", {})
+            if path not in baselines:
+                cached = self._file_state_cache.get(Path(path))
+                if cached is None:
+                    baselines[path] = ""
+                elif len(cached.content) <= 200_000:
+                    baselines[path] = cached.content
+                else:
+                    baselines[path] = None
             files_changed = state.metadata.setdefault("files_changed", set())
             if not isinstance(files_changed, set):
                 files_changed = set(files_changed)
@@ -1024,13 +1035,19 @@ class RegistryToolExecutor:
 
         # The mtime cache lives in the tool service because file tools are the
         # durable source of observed file content, not attachment collection.
-        self._file_state_cache.snapshot_path(
+        snapshot = self._file_state_cache.snapshot_path(
             Path(path),
             offset=_int_or_none(tool_input.get("offset")),
             limit=_int_or_none(tool_input.get("limit")),
-            partial=result.tool_name == "read_file"
+            partial=result.tool_name in {"read_file", "symbol_lookup"}
             and ("offset" in tool_input or "limit" in tool_input),
         )
+        if result.tool_name in {"read_file", "symbol_lookup"}:
+            fingerprint = result.metadata.get("fingerprint")
+            observed = fingerprint.get("sha256") if isinstance(fingerprint, dict) else None
+            if snapshot is None or snapshot.sha256 != observed:
+                self._file_state_cache.remove(Path(path))
+                files_read.discard(path)
 
 
     async def _tool_error(

@@ -1,9 +1,6 @@
 """Prompt section for the glob tool."""
 
-PROMPT = """Purpose:
-Find files by pathname pattern under a directory.
-
-Use when:
+PROMPT = """Use when:
 - You know a filename, extension, or path pattern and need matching files.
 - You need to explore project structure without reading file contents.
 

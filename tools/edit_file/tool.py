@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -16,7 +17,7 @@ from services.tools.types import (
     is_guard_policy_allowed,
 )
 from tools.edit_file.prompt import PROMPT
-from utils.text_io import read_text_file, write_text_file
+from utils.text_io import write_text_file
 
 
 INPUT_SCHEMA: dict[str, Any] = {
@@ -26,6 +27,7 @@ INPUT_SCHEMA: dict[str, Any] = {
         "old_string": {"type": "string"},
         "new_string": {"type": "string"},
         "replace_all": {"type": "boolean"},
+        "expected_sha256": {"type": "string"},
     },
     "required": ["file_path", "old_string", "new_string"],
     "additionalProperties": False,
@@ -73,6 +75,9 @@ def _validate(
     replace_all = tool_input.get("replace_all", False)
     if not isinstance(replace_all, bool):
         return ValidationResult.failure("replace_all must be a boolean.")
+    expected = tool_input.get("expected_sha256")
+    if expected is not None and (len(expected) != 64 or any(ch not in "0123456789abcdef" for ch in expected)):
+        return ValidationResult.failure("expected_sha256 must be a lowercase SHA-256 hex digest.")
     return ValidationResult.success()
 
 
@@ -109,6 +114,13 @@ def _handle(
         )
 
     if not path.exists():
+        if tool_input.get("expected_sha256") is not None:
+            return ToolExecutionResult(
+                tool_call_id="", tool_name="edit_file",
+                content="File version no longer matches the observed version.",
+                is_error=True,
+                metadata={"error": "file_version_mismatch", "path": str(path)},
+            )
         if old_string != "":
             return ToolExecutionResult(
                 tool_call_id="",
@@ -137,7 +149,19 @@ def _handle(
             metadata={"error": "file_not_read", "path": str(path)},
         )
 
-    text = read_text_file(path)
+    cached = runtime.file_state_cache.get(path) if runtime.file_state_cache else None
+    data = path.read_bytes()
+    current_sha256 = hashlib.sha256(data).hexdigest()
+    observed_sha256 = cached.sha256 if cached is not None else None
+    expected_sha256 = tool_input.get("expected_sha256")
+    if observed_sha256 is None or current_sha256 != observed_sha256 or (expected_sha256 is not None and current_sha256 != expected_sha256):
+        return ToolExecutionResult(
+            tool_call_id="", tool_name="edit_file",
+            content="File changed since it was read; read and localize the current version before retrying.",
+            is_error=True,
+            metadata={"error": "file_version_mismatch", "path": str(path)},
+        )
+    text = data.decode("utf-8", errors="replace")
     occurrence_count = text.count(old_string)
     if occurrence_count == 0:
         return ToolExecutionResult(

@@ -20,7 +20,7 @@ from services.tools.types import (
     is_guard_policy_allowed,
 )
 from tools.read_file.prompt import PROMPT
-from utils.text_io import read_text_file
+from utils.text_io import decode_text
 
 DEFAULT_LIMIT = 2000
 
@@ -120,7 +120,8 @@ def _handle(
             metadata={"error": "file_not_found", "path": str(path)},
         )
 
-    text = read_text_file(path)
+    data = path.read_bytes()
+    text = decode_text(data)
     stat = path.stat()
     lines = text.splitlines()
     offset = int(tool_input.get("offset", 1))
@@ -141,7 +142,7 @@ def _handle(
             "line_count": len(selected),
             "fingerprint": {
                 "path": str(path),
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "sha256": hashlib.sha256(data).hexdigest(),
                 "mtime": stat.st_mtime_ns,
                 "size": stat.st_size,
                 "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
